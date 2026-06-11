@@ -3,13 +3,35 @@
 ## Packages
 
 ```
-nix-build nix/ -A dpdk           # F-Stack's bundled, patched DPDK 24.11.6
-nix-build nix/ -A fstack         # libfstack.a + headers + examples + syscall adapter
-nix-build nix/ -A fstack-iperf   # heatheart3/Fstack-iperf  (vanilla iperf 3.17.1+, see below)
-nix-build nix/ -A iperf-fstack   # guhaoyu2005/iperf_fstack (vanilla iperf 3.11, see below)
-nix-build nix/ -A iperf3-fstack  # iperf3 wrapped with LD_PRELOAD=libff_syscall.so
-nix-build nix/ -A all            # everything, symlink-joined
+nix build .#dpdk           # F-Stack's bundled, patched DPDK 24.11.6
+nix build .#fstack         # libfstack.a + headers + examples + syscall adapter
+nix build .#fstack-iperf   # heatheart3/Fstack-iperf  (vanilla iperf 3.17.1+, see below)
+nix build .#iperf-fstack   # guhaoyu2005/iperf_fstack (vanilla iperf 3.11, see below)
+nix build .#iperf3-fstack  # iperf3 wrapped with LD_PRELOAD=libff_syscall.so
+nix build .#all            # everything, symlink-joined (also the default package)
 ```
+
+`nix-build nix/ -A <target>` still works as a flakeless fallback.
+
+`nix develop` drops you into a shell with the packaged DPDK on
+`PKG_CONFIG_PATH` and `FF_PATH` set, so `make -C f-stack/lib` works directly
+for iterating on libfstack.
+
+## Flake layout
+
+The three checkouts are consumed as `git+file:` flake inputs: only tracked
+files are fetched (no `.git`), each tree is cached separately, dirty worktrees
+are supported. Two consequences:
+
+- **Untracked new files in f-stack/the forks are invisible to `nix build`** —
+  `git add` them first.
+- While a checkout is dirty, nix warns that flake.lock entries are unlocked /
+  cannot be updated. That is harmless locally; refresh the lock with
+  `nix flake lock --allow-dirty-locks` after changing inputs.
+
+nixpkgs is pinned to the same rev as the system registry pin (see
+`nix registry list`) so flake and legacy builds share store paths; bump it
+together with the system.
 
 ## Important finding about the two iperf forks
 

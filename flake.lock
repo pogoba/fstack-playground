@@ -3,51 +3,64 @@
     "f-stack": {
       "flake": false,
       "locked": {
-        "path": "./f-stack",
-        "type": "path"
+        "dirtyRev": "c1a76b0ba36c53269913cd805d83a536cd8f64bc-dirty",
+        "dirtyShortRev": "c1a76b0-dirty",
+        "lastModified": 1781149368,
+        "narHash": "sha256-6JAM8v2EkSFrHIrwOx6ovrRQ61AIi5Z8in15oh3Leaw=",
+        "type": "git",
+        "url": "file:///home/okelmann/fstack-development/f-stack"
       },
       "original": {
-        "path": "./f-stack",
-        "type": "path"
-      },
-      "parent": []
+        "type": "git",
+        "url": "file:///home/okelmann/fstack-development/f-stack"
+      }
     },
     "fstack-iperf-src": {
       "flake": false,
       "locked": {
-        "path": "./Fstack-iperf",
-        "type": "path"
+        "lastModified": 1725039587,
+        "narHash": "sha256-/fBlKDJHJBAUlR/ttHJYQ4zHm82cRPqlY+mOFzpIZk8=",
+        "ref": "refs/heads/master",
+        "rev": "7679199ec99c5db194c554b7b11066d347891735",
+        "revCount": 1488,
+        "type": "git",
+        "url": "file:///home/okelmann/fstack-development/Fstack-iperf"
       },
       "original": {
-        "path": "./Fstack-iperf",
-        "type": "path"
-      },
-      "parent": []
+        "type": "git",
+        "url": "file:///home/okelmann/fstack-development/Fstack-iperf"
+      }
     },
     "iperf-fstack-src": {
       "flake": false,
       "locked": {
-        "path": "./iperf_fstack",
-        "type": "path"
+        "lastModified": 1654295091,
+        "narHash": "sha256-Gu6ufBBJxITlmcuh8Tk2eb79XUvyrCGnyii8lcKiZvs=",
+        "ref": "refs/heads/master",
+        "rev": "6cdcde886fa1400dd367c1da54da13ab4f4c5ea7",
+        "revCount": 1271,
+        "type": "git",
+        "url": "file:///home/okelmann/fstack-development/iperf_fstack"
       },
       "original": {
-        "path": "./iperf_fstack",
-        "type": "path"
-      },
-      "parent": []
+        "type": "git",
+        "url": "file:///home/okelmann/fstack-development/iperf_fstack"
+      }
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1780930886,
-        "narHash": "sha256-rppURzHviaQN131F+nLiLdGfcb0uCd9gGP0E5+iw9MI=",
+        "lastModified": 1778940495,
+        "narHash": "sha256-73HPm+mxHcFLyKjpZKgHQ/CIDXHCFl7h7A5oRq0YqMc=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "8c3cede7ddc26bd659d2d383b5610efbd2c7a16e",
+        "rev": "ce56a0cf964598eaecc6fbd573b83c3c041823e8",
         "type": "github"
       },
       "original": {
-        "id": "nixpkgs",
-        "type": "indirect"
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "ce56a0cf964598eaecc6fbd573b83c3c041823e8",
+        "type": "github"
       }
     },
     "root": {

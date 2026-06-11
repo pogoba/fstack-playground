@@ -2,23 +2,27 @@
   description = "F-Stack + bundled DPDK + iperf-over-F-Stack packaging for the local development checkouts";
 
   inputs = {
-    # Resolved via the system flake registry, which pins the system nixpkgs —
-    # keeps the flake builds bit-identical with `nix-build nix/`.
-    nixpkgs.url = "flake:nixpkgs";
+    # Pinned to the same rev as the system nixpkgs (see `nix registry list`,
+    # "system flake:nixpkgs") so flake builds reuse the store paths already
+    # produced via `nix-build nix/`. Bump together with the system.
+    nixpkgs.url = "github:NixOS/nixpkgs/ce56a0cf964598eaecc6fbd573b83c3c041823e8";
 
-    # The three sibling checkouts as relative path inputs. self stays tiny
-    # (only the tracked scaffolding); each tree is fetched & locked separately,
-    # so editing one does not re-copy the others.
+    # The three sibling checkouts as git inputs: only tracked files are
+    # fetched (no .git, no untracked junk), each tree is cached separately,
+    # and dirty worktrees are supported. Caveats: untracked new files in the
+    # checkouts are invisible to the build (`git add` them), and while a
+    # checkout is dirty nix warns that it cannot update flake.lock (harmless;
+    # `nix flake lock --allow-dirty-locks` to silence).
     f-stack = {
-      url = "path:./f-stack";
+      url = "git+file:///home/okelmann/fstack-development/f-stack";
       flake = false;
     };
     fstack-iperf-src = {
-      url = "path:./Fstack-iperf";
+      url = "git+file:///home/okelmann/fstack-development/Fstack-iperf";
       flake = false;
     };
     iperf-fstack-src = {
-      url = "path:./iperf_fstack";
+      url = "git+file:///home/okelmann/fstack-development/iperf_fstack";
       flake = false;
     };
   };
