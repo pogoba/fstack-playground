@@ -81,6 +81,18 @@ LD_PRELOAD mode requirements (verified with iperf 3.17):
 - Connecting to the instance's *own* IP (loopback through F-Stack) currently
   fails with EPERM on this dev branch; test against a real peer instead.
 
+Performance (measured on the dual-port BCM57416 DAC rig, 2026-06-11):
+
+- **`pkt_tx_delay=0`** in the f-stack config is required for TCP throughput:
+  the upstream default of 100 (µs TX batching) inflates the ACK-clock RTT
+  and caps a single stream at ~3.1 Gbit/s. With 0 (plus `iperf3 -l 1M`):
+  **9.29 Gbit/s** — TCP payload line rate on 10GbE at 1500 MTU.
+- The adapter's select() re-poll loop is throttled by 20µs
+  (`ff-hook-select-backoff.patch`); unthrottled, the instances burn ~80% of
+  their core servicing kern_select instead of moving packets.
+- The `Retr`/`Cwnd` columns in iperf output are garbage (Linux vs FreeBSD
+  `TCP_INFO` struct mismatch); trust the Transfer/Bitrate columns.
+
 ## Notes / deviations from upstream build
 
 - F-Stack executables are linked `-no-pie`: F-Stack's FreeBSD `link_elf` code
