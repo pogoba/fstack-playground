@@ -1,0 +1,64 @@
+{
+  "nodes": {
+    "f-stack": {
+      "flake": false,
+      "locked": {
+        "path": "./f-stack",
+        "type": "path"
+      },
+      "original": {
+        "path": "./f-stack",
+        "type": "path"
+      },
+      "parent": []
+    },
+    "fstack-iperf-src": {
+      "flake": false,
+      "locked": {
+        "path": "./Fstack-iperf",
+        "type": "path"
+      },
+      "original": {
+        "path": "./Fstack-iperf",
+        "type": "path"
+      },
+      "parent": []
+    },
+    "iperf-fstack-src": {
+      "flake": false,
+      "locked": {
+        "path": "./iperf_fstack",
+        "type": "path"
+      },
+      "original": {
+        "path": "./iperf_fstack",
+        "type": "path"
+      },
+      "parent": []
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1780930886,
+        "narHash": "sha256-rppURzHviaQN131F+nLiLdGfcb0uCd9gGP0E5+iw9MI=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "8c3cede7ddc26bd659d2d383b5610efbd2c7a16e",
+        "type": "github"
+      },
+      "original": {
+        "id": "nixpkgs",
+        "type": "indirect"
+      }
+    },
+    "root": {
+      "inputs": {
+        "f-stack": "f-stack",
+        "fstack-iperf-src": "fstack-iperf-src",
+        "iperf-fstack-src": "iperf-fstack-src",
+        "nixpkgs": "nixpkgs"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
