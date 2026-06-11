@@ -24,6 +24,13 @@ stdenv.mkDerivation {
     ./patches/ff_config-log-dir-non-const.patch
   ];
 
+  postPatch = ''
+    # The fstack instance binary's link rule bypasses CFLAGS, so the -no-pie
+    # below (see buildPhase) would not reach it.
+    substituteInPlace adapter/syscall/Makefile \
+      --replace-fail 'cc -o $@ $^ ''${FSTACK_LIBS}' 'cc ''${CFLAGS} -o $@ $^ ''${FSTACK_LIBS}'
+  '';
+
   nativeBuildInputs = [
     pkg-config
     gawk
@@ -49,10 +56,16 @@ stdenv.mkDerivation {
     # The example/adapter Makefiles expect ff_*.h preinstalled in
     # /usr/local/include; inject the in-tree header path via the environment
     # (their `CFLAGS +=` appends to it).
-    CFLAGS="-I$FF_PATH/lib" make -C example
+    #
+    # -no-pie: F-Stack's FreeBSD link_elf code resolves its own linker-set
+    # symbols (__start_set_modmetadata_set etc.) from .dynsym with
+    # ef->address = 0, assuming link addr == load addr. nixpkgs gcc defaults
+    # to PIE, which breaks that assumption and makes linker_preload segfault
+    # on the unrelocated address during ff_init.
+    CFLAGS="-I$FF_PATH/lib -no-pie" make -C example
     # serial: the adapter Makefile's `example` target races against
     # libff_syscall.so under -j
-    CFLAGS="-I$FF_PATH/lib" make -C adapter/syscall
+    CFLAGS="-I$FF_PATH/lib -no-pie" make -C adapter/syscall
 
     runHook postBuild
   '';
