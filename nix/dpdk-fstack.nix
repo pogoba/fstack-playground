@@ -15,6 +15,7 @@
   zlib,
   openssl,
   libnl,
+  linux-firmware,
 }:
 
 stdenv.mkDerivation {
@@ -47,6 +48,18 @@ stdenv.mkDerivation {
 
   postPatch = ''
     patchShebangs config/arm buildtools
+
+    # The ice PMD loads its DDP package at runtime from a hardcoded
+    # /lib/firmware path that does not exist on NixOS; point it into the nix
+    # store instead (same patch as vmuxIO's nix/dpdk23.nix). ice.pkg is a
+    # symlink to the versioned package inside linux-firmware.
+    substituteInPlace drivers/net/ice/ice_ethdev.h \
+      --replace-fail \
+        '#define ICE_PKG_FILE_DEFAULT "/lib/firmware/intel/ice/ddp/ice.pkg"' \
+        '#define ICE_PKG_FILE_DEFAULT "${linux-firmware}/lib/firmware/intel/ice/ddp/ice.pkg"' \
+      --replace-fail \
+        '#define ICE_PKG_FILE_SEARCH_PATH_DEFAULT "/lib/firmware/intel/ice/ddp/"' \
+        '#define ICE_PKG_FILE_SEARCH_PATH_DEFAULT "${linux-firmware}/lib/firmware/intel/ice/ddp/"'
 
     # F-Stack re-adds igb_uio and probes /lib/modules/$(uname -r)/build during
     # meson setup even with -Denable_kmods=false; restore upstream's gating so
