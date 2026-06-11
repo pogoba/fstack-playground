@@ -1,0 +1,101 @@
+diff --git a/src/iperf_tcp.c b/src/iperf_tcp.c
+index 9620de5..6d011d6 100644
+--- a/src/iperf_tcp.c
++++ b/src/iperf_tcp.c
+@@ -545,7 +545,7 @@ iperf_tcp_connect(struct iperf_test *test)
+ 	}
+     }
+ 
+-    if (connect(s, (struct sockaddr *) server_res->ai_addr, server_res->ai_addrlen) < 0 && errno != EINPROGRESS) {
++    if (timeout_connect(s, (struct sockaddr *) server_res->ai_addr, server_res->ai_addrlen, test->settings->connect_timeout) < 0 && errno != EINPROGRESS) {
+ 	saved_errno = errno;
+ 	close(s);
+ 	freeaddrinfo(server_res);
+diff --git a/src/net.c b/src/net.c
+index 1a88155..98f2c6c 100644
+--- a/src/net.c
++++ b/src/net.c
+@@ -80,22 +80,27 @@ int
+ timeout_connect(int s, const struct sockaddr *name, socklen_t namelen,
+     int timeout)
+ {
+-	struct pollfd pfd;
++	fd_set ws;
++	struct timeval tv;
+ 	socklen_t optlen;
+ 	int flags, optval;
+ 	int ret;
+ 
+-	flags = 0;
+-	if (timeout != -1) {
+-		flags = fcntl(s, F_GETFL, 0);
+-		if (fcntl(s, F_SETFL, flags | O_NONBLOCK) == -1)
+-			return -1;
+-	}
++	/* Always connect nonblocking: F-Stack's stack cannot sleep, so a
++	 * blocking connect fails with EPERM (_sleep stub). timeout == -1
++	 * becomes an unbounded select() below. select() instead of poll():
++	 * libff_syscall.so hooks select but not poll. */
++	flags = fcntl(s, F_GETFL, 0);
++	if (fcntl(s, F_SETFL, flags | O_NONBLOCK) == -1)
++		return -1;
+ 
+ 	if ((ret = connect(s, name, namelen)) != 0 && errno == EINPROGRESS) {
+-		pfd.fd = s;
+-		pfd.events = POLLOUT;
+-		if ((ret = poll(&pfd, 1, timeout)) == 1) {
++		FD_ZERO(&ws);
++		FD_SET(s, &ws);
++		tv.tv_sec = timeout / 1000;
++		tv.tv_usec = (timeout % 1000) * 1000;
++		if ((ret = select(s + 1, NULL, &ws, NULL,
++		    timeout != -1 ? &tv : NULL)) == 1) {
+ 			optlen = sizeof(optval);
+ 			if ((ret = getsockopt(s, SOL_SOCKET, SO_ERROR,
+ 			    &optval, &optlen)) == 0) {
+@@ -109,7 +114,7 @@ timeout_connect(int s, const struct sockaddr *name, socklen_t namelen,
+ 			ret = -1;
+ 	}
+ 
+-	if (timeout != -1 && fcntl(s, F_SETFL, flags) == -1)
++	if (fcntl(s, F_SETFL, flags) == -1)
+ 		ret = -1;
+ 
+ 	return (ret);
+@@ -378,6 +383,17 @@ Nread(int fd, char *buf, size_t count, int prot)
+         if (r < 0) {
+             if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
+                 break;
++            else if (errno == EPERM) {
++                /* F-Stack: blocking reads that must wait fail with EPERM
++                 * (the stack cannot sleep). Wait for readability via the
++                 * hooked select() and retry; peer close wakes us with EOF. */
++                fd_set rfds;
++                FD_ZERO(&rfds);
++                FD_SET(fd, &rfds);
++                if (select(fd + 1, &rfds, NULL, NULL, NULL) < 0)
++                    return NET_HARDERROR;
++                continue;
++            }
+             else
+                 return NET_HARDERROR;
+         } else if (r == 0)
+@@ -414,6 +430,18 @@ Nwrite(int fd, const char *buf, size_t count, int prot)
+ 		case ENOBUFS:
+ 		return NET_SOFTERROR;
+ 
++		case EPERM: {
++		/* F-Stack: blocking writes that must wait fail with EPERM
++		 * (the stack cannot sleep). Wait for writability via the
++		 * hooked select() and retry. */
++		fd_set ws;
++		FD_ZERO(&ws);
++		FD_SET(fd, &ws);
++		if (select(fd + 1, NULL, &ws, NULL, NULL) < 0)
++		    return NET_HARDERROR;
++		continue;
++		}
++
+ 		default:
+ 		return NET_HARDERROR;
+ 	    }

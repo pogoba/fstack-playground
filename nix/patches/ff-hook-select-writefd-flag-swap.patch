@@ -1,0 +1,22 @@
+diff --git a/adapter/syscall/ff_hook_syscall.c b/adapter/syscall/ff_hook_syscall.c
+index 984fd45dc..5bd217e90 100644
+--- a/adapter/syscall/ff_hook_syscall.c
++++ b/adapter/syscall/ff_hook_syscall.c
+@@ -2837,7 +2837,7 @@ ff_hook_select(int nfds, fd_set *restrict readfds, fd_set *restrict writefds,
+         for (fd = ff_bitmap_first_set(fds_bit, set_words); (fd != ~0) && (fd < nfds); 
+              fd = ff_bitmap_next_set(fds_bit, fd + 1, set_words)) {
+             if (is_fstack_fd(fd)) {
+-                have_ff_exceptfd = true;
++                have_ff_writefd = true;
+                 if (restore_fstack_fd(fd) > max_ff_fd) {
+                     max_ff_fd = restore_fstack_fd(fd);
+                 }
+@@ -2863,7 +2863,7 @@ ff_hook_select(int nfds, fd_set *restrict readfds, fd_set *restrict writefds,
+         for (fd = ff_bitmap_first_set(fds_bit, set_words); (fd != ~0) && (fd < nfds); 
+              fd = ff_bitmap_next_set(fds_bit, fd + 1, set_words)) {
+             if (is_fstack_fd(fd)) {
+-                have_ff_writefd = true;
++                have_ff_exceptfd = true;
+                 if (restore_fstack_fd(fd) > max_ff_fd) {
+                     max_ff_fd = restore_fstack_fd(fd);
+                 }

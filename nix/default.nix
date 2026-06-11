@@ -47,9 +47,9 @@ let
   };
 
   mkIperfFork =
-    pname: srcRoot:
+    pname: srcRoot: patches:
     stdenv.mkDerivation {
-      inherit pname;
+      inherit pname patches;
       version = "3-fork-unstable";
       src = builtins.path {
         path = srcRoot;
@@ -72,16 +72,28 @@ let
     dpdk-fstack = dpdk;
   };
 
-  fstack-iperf = mkIperfFork "fstack-iperf" fstackIperfRoot;
-  iperf-fstack = mkIperfFork "iperf-fstack" iperfFstackRoot;
+  fstack-iperf = mkIperfFork "fstack-iperf" fstackIperfRoot [
+    # libff_syscall.so hooks select() but not poll(); unhooked poll on an
+    # F-Stack fd fakes connect completion and iperf3 then writes to a
+    # still-connecting socket (ENOTCONN).
+    ./patches/iperf-timeout-connect-select.patch
+  ];
+  iperf-fstack = mkIperfFork "iperf-fstack" iperfFstackRoot [
+    # same select()-instead-of-poll() + always-nonblocking-connect fix,
+    # ported to this fork's iperf 3.11 base
+    ./patches/iperf311-timeout-connect-select.patch
+  ];
 
-  # Run an unmodified iperf3 on top of F-Stack via the syscall-hijack adapter.
+  # Run iperf3 on top of F-Stack via the syscall-hijack adapter.
   # Requires a running `fstack` instance (see f-stack/adapter/syscall/README.md):
   #   fstack --conf /etc/f-stack.conf --proc-type=primary &
   #   iperf3-fstack -s
+  # Uses the iperf 3.11 fork: iperf >= 3.16 does per-stream worker threads,
+  # which the adapter's process-global IPC context cannot serve (worker
+  # threads' stream I/O fails and they exit silently -> 0 bytes transferred).
   iperf3-fstack = pkgs.writeShellScriptBin "iperf3-fstack" ''
     export LD_PRELOAD=${fstack}/lib/libff_syscall.so
-    exec ${lib.getExe fstack-iperf} "$@"
+    exec ${lib.getExe iperf-fstack} "$@"
   '';
 
 in

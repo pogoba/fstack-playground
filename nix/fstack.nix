@@ -22,6 +22,10 @@ stdenv.mkDerivation {
   patches = [
     # free()d in ff_config.c but declared const; rejected by gcc 14 -Werror.
     ./patches/ff_config-log-dir-non-const.patch
+    # ff_hook_select sets have_ff_exceptfd when scanning writefds (and vice
+    # versa), so write-only select() forwards NULL writefds to the instance
+    # and never reports writability (e.g. nonblocking connect completion).
+    ./patches/ff-hook-select-writefd-flag-swap.patch
   ];
 
   postPatch = ''

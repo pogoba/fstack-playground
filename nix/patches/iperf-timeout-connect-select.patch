@@ -1,0 +1,66 @@
+diff --git a/src/iperf_tcp.c b/src/iperf_tcp.c
+index dc0feda..8c429ee 100644
+--- a/src/iperf_tcp.c
++++ b/src/iperf_tcp.c
+@@ -565,7 +565,7 @@ iperf_tcp_connect(struct iperf_test *test)
+     /* Set common socket options */
+     iperf_common_sockopts(test, s);
+ 
+-    if (connect(s, (struct sockaddr *) server_res->ai_addr, server_res->ai_addrlen) < 0 && errno != EINPROGRESS) {
++    if (timeout_connect(s, (struct sockaddr *) server_res->ai_addr, server_res->ai_addrlen, test->settings->connect_timeout) < 0 && errno != EINPROGRESS) {
+ 	saved_errno = errno;
+ 	close(s);
+ 	freeaddrinfo(server_res);
+diff --git a/src/net.c b/src/net.c
+index 632ae03..431a7a1 100644
+--- a/src/net.c
++++ b/src/net.c
+@@ -83,22 +83,29 @@ int
+ timeout_connect(int s, const struct sockaddr *name, socklen_t namelen,
+     int timeout)
+ {
+-	struct pollfd pfd;
++	fd_set ws;
++	struct timeval tv;
+ 	socklen_t optlen;
+ 	int flags, optval;
+ 	int ret;
+ 
+-	flags = 0;
+-	if (timeout != -1) {
+-		flags = fcntl(s, F_GETFL, 0);
+-		if (fcntl(s, F_SETFL, flags | O_NONBLOCK) == -1)
+-			return -1;
+-	}
++	/* Always connect nonblocking: F-Stack's stack cannot sleep, so a
++	 * blocking connect fails with EPERM (_sleep stub). timeout == -1
++	 * becomes an unbounded select() below. */
++	flags = fcntl(s, F_GETFL, 0);
++	if (fcntl(s, F_SETFL, flags | O_NONBLOCK) == -1)
++		return -1;
+ 
+ 	if ((ret = connect(s, name, namelen)) != 0 && errno == EINPROGRESS) {
+-		pfd.fd = s;
+-		pfd.events = POLLOUT;
+-		if ((ret = poll(&pfd, 1, timeout)) == 1) {
++		/* select() instead of poll(): F-Stack's libff_syscall.so hooks
++		 * select but not poll, and unhooked poll on an F-Stack fd
++		 * returns POLLNVAL immediately, faking connect completion. */
++		FD_ZERO(&ws);
++		FD_SET(s, &ws);
++		tv.tv_sec = timeout / 1000;
++		tv.tv_usec = (timeout % 1000) * 1000;
++		if ((ret = select(s + 1, NULL, &ws, NULL,
++		    timeout != -1 ? &tv : NULL)) == 1) {
+ 			optlen = sizeof(optval);
+ 			if ((ret = getsockopt(s, SOL_SOCKET, SO_ERROR,
+ 			    &optval, &optlen)) == 0) {
+@@ -112,7 +119,7 @@ timeout_connect(int s, const struct sockaddr *name, socklen_t namelen,
+ 			ret = -1;
+ 	}
+ 
+-	if (timeout != -1 && fcntl(s, F_SETFL, flags) == -1)
++	if (fcntl(s, F_SETFL, flags) == -1)
+ 		ret = -1;
+ 
+ 	return (ret);
