@@ -70,6 +70,17 @@ result/bin/iperf3-fstack -s
 `ff_helloworld`, `ff_helloworld_epoll` and the `ff_helloworld_stack*` demos are
 installed as smoke tests for the same setup.
 
+LD_PRELOAD mode requirements (verified with iperf 3.17):
+
+- The adapter is built with `FF_PRELOAD_SUPPORT_SELECT=1` /
+  `FF_KERNEL_MAX_FD_SELECT=128` so select()-based apps work: app-visible
+  F-Stack fds are `freebsd_fd + 128` and must stay below FD_SETSIZE (1024).
+- Therefore `fd_reserve` in the f-stack config MUST be small (128, not the
+  upstream default 1024) — FreeBSD fds start at `fd_reserve`, and
+  1024 + 128 ≥ FD_SETSIZE makes glibc's fortified FD_SET abort.
+- Connecting to the instance's *own* IP (loopback through F-Stack) currently
+  fails with EPERM on this dev branch; test against a real peer instead.
+
 ## Notes / deviations from upstream build
 
 - F-Stack executables are linked `-no-pie`: F-Stack's FreeBSD `link_elf` code

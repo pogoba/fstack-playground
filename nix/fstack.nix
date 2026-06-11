@@ -65,7 +65,17 @@ stdenv.mkDerivation {
     CFLAGS="-I$FF_PATH/lib -no-pie" make -C example
     # serial: the adapter Makefile's `example` target races against
     # libff_syscall.so under -j
-    CFLAGS="-I$FF_PATH/lib -no-pie" make -C adapter/syscall
+    #
+    # FF_PRELOAD_SUPPORT_SELECT: hook select() and keep F-Stack fds below
+    # FD_SETSIZE; without it, select()-based apps (iperf3) abort in glibc's
+    # fortify FD_SET bounds check because F-Stack fds start above
+    # RLIMIT_NOFILE. Kernel fds are then capped at FF_KERNEL_MAX_FD_SELECT.
+    # (Implies FF_USE_THREAD_STRUCT_HANDLE; both the fstack instance and
+    # libff_syscall.so are built here with the same flags, keeping the
+    # shared-memory layout consistent.)
+    CFLAGS="-I$FF_PATH/lib -no-pie" \
+      FF_PRELOAD_SUPPORT_SELECT=1 FF_KERNEL_MAX_FD_SELECT=128 \
+      make -C adapter/syscall
 
     runHook postBuild
   '';
