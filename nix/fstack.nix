@@ -47,6 +47,9 @@ stdenv.mkDerivation {
     # kern_*.o fail with "machine/endian.h: No such file or directory" on
     # hosts that lose the race.
     ./patches/ff-lib-objs-order-after-machine-includes.patch
+    # Enable hardware LRO (upstream leaves it '#if 0'): RX-side mirror of
+    # TSO, collapses the receiver's dominant per-packet costs.
+    ./patches/ff-enable-lro.patch
   ];
 
   postPatch = ''
@@ -76,7 +79,10 @@ stdenv.mkDerivation {
 
     export FF_PATH=$PWD
 
-    make -C lib -j$NIX_BUILD_CORES
+    # FF_IPFW/FF_NETGRAPH off: ipfw_chk costs ~4-6% of the instance core on
+    # every packet (profiled on both ends of the iperf rig); neither is
+    # needed for a plain TCP/UDP stack.
+    make -C lib -j$NIX_BUILD_CORES FF_IPFW= FF_NETGRAPH=
 
     # The example/adapter Makefiles expect ff_*.h preinstalled in
     # /usr/local/include; inject the in-tree header path via the environment
