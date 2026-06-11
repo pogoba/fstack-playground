@@ -1,0 +1,27 @@
+diff --git a/freebsd/sys/callout.h b/freebsd/sys/callout.h
+index f2195fbf8..4e86eb8b0 100644
+--- a/freebsd/sys/callout.h
++++ b/freebsd/sys/callout.h
+@@ -93,8 +93,21 @@ void	_callout_init_lock(struct callout *, struct lock_object *, int);
+ #define	callout_pending(c)	((c)->c_iflags & CALLOUT_PENDING)
+ int callout_reset_tick_on(struct callout *, int, void (*)(void *),
+ 	void *, int, int);
++/*
++ * F-Stack maps sbintime callouts onto the legacy tick wheel. C_ABSOLUTE
++ * callers (e.g. FreeBSD 14+'s unified TCP timer, tcp_timer_enter) pass an
++ * absolute sbinuptime() deadline, which must be converted to a relative
++ * tick count first -- dividing the absolute timestamp by tick_sbt schedules
++ * the callout aeons in the future and TCP timers (RTO, delayed ACK,
++ * persist) never fire.
++ */
+ #define callout_reset_sbt_on(c, sbt, pr, fn, args, cpu, flags) \
+-    callout_reset_tick_on((c), (sbt)/tick_sbt, (fn), (args), (cpu), (flags))
++    callout_reset_tick_on((c), \
++        (((flags) & C_ABSOLUTE) ? \
++            ({ sbintime_t _ff_d = (sbt) - sbinuptime(); \
++               _ff_d <= 0 ? 1 : (int)(_ff_d / tick_sbt) + 1; }) : \
++            (int)((sbt) / tick_sbt)), \
++        (fn), (args), (cpu), (flags))
+ #define	callout_reset_sbt(c, sbt, pr, fn, arg, flags)			\
+     callout_reset_sbt_on((c), (sbt), (pr), (fn), (arg), -1, (flags))
+ #define	callout_reset_sbt_curcpu(c, sbt, pr, fn, arg, flags)		\

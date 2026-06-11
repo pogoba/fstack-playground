@@ -1,0 +1,34 @@
+diff --git a/lib/ff_stub_14_extra.c b/lib/ff_stub_14_extra.c
+index 440475b71..84181daf0 100644
+--- a/lib/ff_stub_14_extra.c
++++ b/lib/ff_stub_14_extra.c
+@@ -19,6 +19,8 @@
+ #include <sys/types.h>
+ #include <sys/kernel.h>
+ #include <sys/systm.h>
++#include <sys/time.h>
++#include <sys/callout.h>
+ #include <sys/errno.h>
+ #include <sys/lock.h>
+ #include <sys/mutex.h>
+@@ -149,7 +151,19 @@ void buf_ring_free(struct buf_ring *br, struct malloc_type *type)
+ void callout_when(sbintime_t sbt, sbintime_t precision, int flags, sbintime_t *sbt_out, sbintime_t *precision_out);
+ void callout_when(sbintime_t sbt, sbintime_t precision, int flags, sbintime_t *sbt_out, sbintime_t *precision_out)
+ {
+-    
++    /*
++     * Convert a (relative unless C_ABSOLUTE) deadline to an absolute
++     * sbinuptime()-based one, like FreeBSD's kern_timeout.c version.
++     * The previous empty stub left *sbt_out untouched, so FreeBSD 14+'s
++     * unified TCP timer (tcp_timer_activate) never armed t_timers[] and
++     * no TCP timer (RTO, delayed ACK, persist) ever fired.
++     */
++    if (flags & C_ABSOLUTE)
++        *sbt_out = sbt;
++    else
++        *sbt_out = sbt + sbinuptime();
++    if (precision_out != NULL)
++        *precision_out = precision;
+ }
+ 
+ vm_paddr_t dump_avail[16] = {0};

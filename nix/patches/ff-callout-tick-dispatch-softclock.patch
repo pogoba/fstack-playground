@@ -1,0 +1,30 @@
+diff --git a/lib/ff_kern_timeout.c b/lib/ff_kern_timeout.c
+index 501718489..844a224a6 100644
+--- a/lib/ff_kern_timeout.c
++++ b/lib/ff_kern_timeout.c
+@@ -187,6 +187,7 @@ struct callout_cpu cc_cpu;
+ static int timeout_cpu;
+ 
+ static void callout_cpu_init(struct callout_cpu *cc, int cpu);
++static void softclock(void *arg);
+ static void softclock_call_cc(struct callout *c, struct callout_cpu *cc,
+ #ifdef CALLOUT_PROFILING
+     int *mpcalls, int *lockcalls, int *gcalls,
+@@ -343,10 +344,15 @@ callout_tick(void)
+      * swi_sched acquires the thread lock, so we don't want to call it
+      * with cc_lock held; incorrect locking order.
+      */
+-#ifndef FSTACK
++    /*
++     * F-Stack has no softclock SWI thread; dispatch expired callouts
++     * directly from the tick. (The 14.0+ rebase wrapped this in
++     * #ifndef FSTACK to paper over the removed softclock prototype,
++     * which disabled every callout -- TCP RTO, delayed ACK, persist --
++     * and stalled connections once progress depended on a timer.)
++     */
+     if (need_softclock)
+         softclock(cc);
+-#endif
+ }
+ 
+ static struct callout_cpu *

@@ -26,6 +26,18 @@ stdenv.mkDerivation {
     # versa), so write-only select() forwards NULL writefds to the instance
     # and never reports writability (e.g. nonblocking connect completion).
     ./patches/ff-hook-select-writefd-flag-swap.patch
+    # The 14.0+ rebase wrapped callout_tick's softclock dispatch in
+    # #ifndef FSTACK, disabling all TCP timers (RTO, delayed ACK, persist);
+    # connections stall as soon as progress depends on a timer.
+    ./patches/ff-callout-tick-dispatch-softclock.patch
+    # The sbintime->tick compat macro ignores C_ABSOLUTE: FreeBSD 14+'s
+    # unified TCP timer passes absolute sbinuptime() deadlines, which were
+    # scheduled aeons in the future instead of relative to now.
+    ./patches/ff-callout-sbt-absolute.patch
+    # callout_when was an empty stub (ff_stub_14_extra.c), so
+    # tcp_timer_activate never armed t_timers[] and no TCP timer was ever
+    # scheduled in the first place.
+    ./patches/ff-callout-when-implement.patch
   ];
 
   postPatch = ''
