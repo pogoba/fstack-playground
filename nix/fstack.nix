@@ -42,6 +42,11 @@ stdenv.mkDerivation {
     # consumes ~80% of the instance core in kern_select evaluations and
     # starves packet processing (profiled: 3.15 Gbit/s ceiling).
     ./patches/ff-hook-select-backoff.patch
+    # Under `make -j`, lib objects race the machine_include/ staging and the
+    # awk-generated *_if.h headers (all sibling prerequisites of libfstack.a):
+    # kern_*.o fail with "machine/endian.h: No such file or directory" on
+    # hosts that lose the race.
+    ./patches/ff-lib-objs-order-after-machine-includes.patch
   ];
 
   postPatch = ''

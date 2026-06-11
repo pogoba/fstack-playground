@@ -1,0 +1,16 @@
+--- a/lib/Makefile
++++ b/lib/Makefile
+@@ -685,6 +685,13 @@
+ ${OBJS}: %.o: %.c ${IMACROS_FILE}
+ 	${NORMAL_C}
+ 
++# machine_includes and the awk-generated ${MHEADERS} are sibling
++# prerequisites of libfstack.a, so under parallel make objects compile
++# while machine_include/ is still being staged (machine_includes even
++# starts by rm -rf'ing it). Order-only: staging must precede compilation
++# but must not force .o rebuilds.
++${OBJS} ${ASM_OBJS} ${HOST_OBJS}: | machine_includes ${MHEADERS}
++
+ 
+ .SUFFIXES: .m
+ 
