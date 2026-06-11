@@ -1,0 +1,20 @@
+diff --git a/adapter/syscall/ff_hook_syscall.c b/adapter/syscall/ff_hook_syscall.c
+index 984fd45dc..43e9ad185 100644
+--- a/adapter/syscall/ff_hook_syscall.c
++++ b/adapter/syscall/ff_hook_syscall.c
+@@ -2981,9 +2981,15 @@ retry:
+                     goto select_exit;
+                 }
+ 
++                /* Throttle re-polling: every retry costs the fstack
++                 * instance a full kern_select evaluation; an unthrottled
++                 * spin loop eats ~80% of the instance's core and starves
++                 * actual packet processing. */
++                usleep(20);
+                 goto retry;
+             }
+         } else {
++            usleep(20);
+             goto retry;
+         }
+     } while(true);

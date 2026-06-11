@@ -38,6 +38,10 @@ stdenv.mkDerivation {
     # tcp_timer_activate never armed t_timers[] and no TCP timer was ever
     # scheduled in the first place.
     ./patches/ff-callout-when-implement.patch
+    # Throttle ff_hook_select re-polling (20us): the unthrottled retry loop
+    # consumes ~80% of the instance core in kern_select evaluations and
+    # starves packet processing (profiled: 3.15 Gbit/s ceiling).
+    ./patches/ff-hook-select-backoff.patch
   ];
 
   postPatch = ''
