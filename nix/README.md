@@ -19,15 +19,17 @@ for iterating on libfstack.
 
 ## Flake layout
 
-The three checkouts are consumed as `git+file:` flake inputs: only tracked
-files are fetched (no `.git`), each tree is cached separately, dirty worktrees
-are supported. Two consequences:
+The three source trees are `github:*` inputs pinned to the exact revs the
+local checkouts are at (f-stack: `origin/dev`; the iperf forks: their
+masters). Consequences:
 
-- **Untracked new files in f-stack/the forks are invisible to `nix build`** —
-  `git add` them first.
-- While a checkout is dirty, nix warns that flake.lock entries are unlocked /
-  cannot be updated. That is harmless locally; refresh the lock with
-  `nix flake lock --allow-dirty-locks` after changing inputs.
+- **Local modifications to the checkouts are NOT picked up by `nix build`.**
+  Carry fixes as patch files in `nix/patches/` (see
+  `ff_config-log-dir-non-const.patch`), or push the commits and bump the rev
+  in the flake.nix input URL.
+- The legacy `nix-build nix/` path still builds from the local checkouts —
+  keep them at the pinned revs (plus patches) if the two are expected to
+  agree.
 
 nixpkgs is pinned to the same rev as the system registry pin (see
 `nix registry list`) so flake and legacy builds share store paths; bump it

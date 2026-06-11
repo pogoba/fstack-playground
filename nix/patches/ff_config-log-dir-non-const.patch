@@ -1,0 +1,13 @@
+diff --git a/lib/ff_config.h b/lib/ff_config.h
+index 06417c0d6..81456a6d1 100644
+--- a/lib/ff_config.h
++++ b/lib/ff_config.h
+@@ -320,7 +320,7 @@ struct ff_config {
+ 
+     struct {
+         int level;
+-        const char *dir;
++        char *dir; /* heap-owned: always assigned via strdup() */
+         void *f; /* FILE * */
+     } log;
+ 
