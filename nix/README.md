@@ -118,6 +118,60 @@ Notes:
   work — this example measures real traffic over the cable between two
   separate stacks.
 
+### Example: two hosts, one port each (12.9 Gbit/s on 100G E810)
+
+Each host runs one primary instance in its own DPDK domain; the iperf
+processes need no `FF_*` environment variables (defaults attach to proc 0 of
+the local domain). The two configs differ only in the `[port0]` section —
+the addresses mirror each other:
+
+```ini
+# host A: config.ini        # host B: config2.ini
+[port0]                     [port0]
+addr=192.168.1.2            addr=192.168.1.3
+netmask=255.255.255.0       netmask=255.255.255.0
+broadcast=192.168.1.255     broadcast=192.168.1.255
+gateway=192.168.1.3         gateway=192.168.1.2
+```
+
+```sh
+# host A (server), two terminals:
+sudo ./result/bin/fstack --conf $PWD/config.ini --proc-type=primary --proc-id=0
+sudo ./result/bin/iperf3-fstack -s -B 192.168.1.2
+
+# host B (client), two terminals:
+sudo ./result/bin/fstack --conf $PWD/config2.ini --proc-type=primary --proc-id=0
+sudo ./result/bin/iperf3-fstack -c 192.168.1.2 -t 10 -l 1M
+```
+
+Measured 2026-06-11 between two hosts over 100G E810-C (single stream,
+single core per stack, 1500 MTU, software TX checksums):
+
+```
+[257]   0.00-10.01  sec  15.1 GBytes  12.9 Gbits/sec   sender
+[257]   0.00-10.01  sec  15.1 GBytes  12.9 Gbits/sec   receiver
+```
+
+Two-host gotchas (all learned the hard way):
+
+- **Both hosts need this patched build** (`nix copy --to ssh://hostB
+  $(readlink result)`): a stock f-stack dev build on either end stalls all
+  connections after ~1s (the TCP-timer bugs fixed in `nix/patches/`).
+- **Intel E810 (ice PMD) requires `tx_csum_offoad_skip=1`**: F-Stack's TX
+  checksum-offload descriptors trip the NIC's Malicious Driver Detection
+  ("MDD event ... by TDPU" in the instance log) which silently kills the TX
+  queue — everything times out. Broadcom bnxt tolerates the same
+  descriptors. The proper fix would be correct l2/l3 lengths in F-Stack's
+  mbuf TX path.
+- **Make sure the second host really uses the second config**: `fstack`
+  without `--conf` silently loads `./config.ini` from the cwd. If both ends
+  claim the same IP, the only wire traffic is ARP conflict announcements
+  ("arp: <mac> is using my IP address") and connects time out.
+- The single-stream ceiling here is CPU-bound (one stack core, software
+  checksums, no TSO, 1500 MTU). Levers, in payoff order: `tso=1` (test for
+  MDD again), jumbo MTU on both ends, multi-queue/multi-instance with
+  parallel streams.
+
 LD_PRELOAD mode requirements (verified with iperf 3.17):
 
 - The adapter is built with `FF_PRELOAD_SUPPORT_SELECT=1` /
