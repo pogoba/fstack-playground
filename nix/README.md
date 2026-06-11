@@ -54,21 +54,69 @@ socket/epoll syscalls of an *unmodified* binary. That is what the
 
 ## Running iperf over F-Stack (requires root, hugepages, a DPDK-capable NIC)
 
+One-time setup:
+
 ```sh
-# 1. hugepages + NIC binding (vfio-pci; igb_uio kmod is not built, see below)
+# hugepages + NIC binding (vfio-pci; igb_uio kmod is not built, see below)
 echo 1024 > /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
 modprobe vfio-pci
 result/bin/dpdk-devbind.py --bind=vfio-pci <pci-id>
-
-# 2. start the F-Stack instance process (config: f-stack/config.ini)
-result/bin/fstack --conf /etc/f-stack.conf --proc-type=primary --proc-id=0 &
-
-# 3. run iperf3 hooked onto that instance
-result/bin/iperf3-fstack -s
 ```
 
 `ff_helloworld`, `ff_helloworld_epoll` and the `ff_helloworld_stack*` demos are
 installed as smoke tests for the same setup.
+
+### Example: dual-port DAC loopback measurement (9.29 Gbit/s)
+
+Setup used: the two ports of a 10G NIC (BCM57416, `0000:c4:00.0` and
+`0000:c4:00.1`) connected to each other with a DAC cable, both bound to
+vfio-pci. Two independent F-Stack instances run in one DPDK domain — proc 0
+owns port 0 (192.168.1.2), proc 1 owns port 1 (192.168.1.3) via per-port
+`lcore_list` in `config-dual.ini` (see repo root; the essentials are
+`lcore_mask=3`, `port_list=0,1`, `[portN] lcore_list=N`, `fd_reserve=128`,
+`pkt_tx_delay=0`). iperf processes pick their instance with `FF_PROC_ID`.
+
+Four terminals, in this order:
+
+```sh
+# 1. F-Stack instance for port 0 (192.168.1.2); wait for
+#    "Successed to register dpdk interface" (~8s)
+sudo ./result/bin/fstack --conf $PWD/config-dual.ini --proc-type=primary --proc-id=0
+
+# 2. F-Stack instance for port 1 (192.168.1.3)
+sudo ./result/bin/fstack --conf $PWD/config-dual.ini --proc-type=secondary --proc-id=1
+
+# 3. iperf3 server, attached to the port-1 stack
+sudo FF_PROC_ID=1 FF_NB_FSTACK_INSTANCE=2 FF_INITIAL_LCORE_ID=8 \
+    ./result/bin/iperf3-fstack -s -B 192.168.1.3
+
+# 4. iperf3 client, attached to the port-0 stack
+sudo FF_PROC_ID=0 FF_NB_FSTACK_INSTANCE=2 FF_INITIAL_LCORE_ID=10 \
+    ./result/bin/iperf3-fstack -c 192.168.1.3 -t 10 -l 1M
+```
+
+Result (2026-06-11, with the patches in `nix/patches/`):
+
+```
+[257]   0.00-10.01  sec  10.9 GBytes  9.33 Gbits/sec   sender
+[257]   0.00-10.01  sec  10.9 GBytes  9.32 Gbits/sec   receiver
+```
+
+Notes:
+
+- `FF_PROC_ID` selects the instance to attach to; `FF_INITIAL_LCORE_ID` is a
+  hex CPU mask for the app's EAL thread (8 = core 3, 0x10 = core 4) — keep
+  them distinct from each other and from the instance cores (0 and 1, which
+  busy-poll at 100%).
+- Start order matters: primary instance, secondary instance, server, client.
+- "Address already in use" from the server means a previous iperf's listen
+  socket leaked into the instance (known adapter limitation on app exit) —
+  restart both instances.
+- The hook prints `file:ff_hook_syscall.c, ...` debug lines on a tty; that
+  is normal.
+- F-Stack-internal loopback (connecting to the instance's own IP) does NOT
+  work — this example measures real traffic over the cable between two
+  separate stacks.
 
 LD_PRELOAD mode requirements (verified with iperf 3.17):
 
