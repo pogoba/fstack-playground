@@ -72,6 +72,17 @@ installed as smoke tests for the same setup.
 
 ## Notes / deviations from upstream build
 
+- F-Stack executables are linked `-no-pie`: F-Stack's FreeBSD `link_elf` code
+  registers the running executable as the "kernel" linker file with
+  `ef->address = 0` and resolves its linker-set symbols
+  (`__start_set_modmetadata_set`, in `.dynsym` due to DPDK's
+  `-Wl,--export-dynamic`) from the dynamic symbol table — with a PIE binary
+  those are pre-relocation vaddrs and `linker_preload` segfaults during
+  `ff_init`. Affects any distro whose gcc defaults to PIE (Debian, Ubuntu,
+  Fedora, NixOS); a proper upstream fix would derive `ef->address` from the
+  actual load base (`dl_iterate_phdr` / `getauxval(AT_PHDR)`) in
+  `link_elf_init`.
+
 - The bundled DPDK is built with `-Dplatform=generic` for reproducibility;
   override `mesonFlags` with `native` for production performance.
 - Kernel modules (`igb_uio`) are **not** built: F-Stack re-adds igb_uio and
