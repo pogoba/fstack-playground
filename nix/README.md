@@ -145,12 +145,21 @@ sudo ./result/bin/iperf3-fstack -c 192.168.1.2 -t 10 -l 1M
 ```
 
 Measured 2026-06-11 between two hosts over 100G E810-C (single stream,
-single core per stack, 1500 MTU, software TX checksums):
+single core per stack, 1500 MTU; tso=1 + tx_csum_offoad_skip=0, ipfw-less
+build, pcap off):
 
 ```
-[257]   0.00-10.01  sec  15.1 GBytes  12.9 Gbits/sec   sender
-[257]   0.00-10.01  sec  15.1 GBytes  12.9 Gbits/sec   receiver
+[257]   0.00-10.00  sec  22.4 GBytes  19.2 Gbits/sec   sender
+[257]   0.00-10.00  sec  22.4 GBytes  19.2 Gbits/sec   receiver
 ```
+
+Tuning journey for that number (each step measured): 12.9 (baseline after
+the timer fixes) -> 13.0 (tso=1 + tx_csum_offoad_skip=0 on the sender; the
+two MUST be flipped together on E810 -- csum offload alone or tso alone
+trips the NIC's MDD and kills the TX queue) -> 13.9 (FF_IPFW/FF_NETGRAPH
+removed from the build) -> 19.2 Gbit/s ([pcap] enable=0; the per-packet
+gettimeofday+fwrite in the dump path also BLOCKS the instance loop on file
+I/O -- never benchmark with pcap enabled).
 
 Two-host gotchas (all learned the hard way):
 
