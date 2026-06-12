@@ -154,28 +154,68 @@ build, pcap off):
 [257]   0.00-10.00  sec  22.4 GBytes  19.2 Gbits/sec   receiver
 ```
 
-### Native iperf (no LD_PRELOAD): 20.9 Gbit/s on one core per host
+### Example: two hosts, native iperf (no LD_PRELOAD) — 20.9 Gbit/s on one core per host
 
-`iperf-fstack-native` embeds the F-Stack instance in the iperf3 binary
-(DPDK primary; new `ff_pump()` API drives the stack wherever iperf would
-block). No adapter process, no IPC, no shared-memory copies — one process,
-one core per host:
+`iperf-fstack-native` is the iperf 3.11 fork compiled directly against
+`ff_api`: the binary **embeds the F-Stack instance** and runs as its own
+DPDK primary. There is no separate `fstack` process, no `libff_syscall.so`,
+no shared-memory IPC and no extra data copies — application and stack share
+one busy-polling core per host. Internally, a new `ff_pump()` F-Stack API
+(one stack-loop iteration; `nix/patches/ff-add-ff-pump.patch`) is called
+wherever iperf would block, so iperf's sequential code runs unmodified
+instead of being rewritten into `ff_run()` callbacks.
+
+Setup per host (same prerequisites as the other examples: hugepages, NIC on
+vfio-pci, the per-host configs from the two-host example above):
 
 ```sh
-# host A:                          # host B:
-sudo FF_CONF=$PWD/config.ini \
-    ./result-native/bin/iperf3 -s -B 192.168.1.2
-                                   sudo FF_CONF=$PWD/config2.ini \
-                                       ./result-native/bin/iperf3 -c 192.168.1.2 -t 10 -l 1M
+# build on EACH host — the repo may be shared (NFS), /nix/store is not:
+nix build .#iperf-fstack-native -o result-native
 ```
+
+Stop any LD_PRELOAD-era processes first (`fstack` instances and preload
+iperf servers): the native binary is itself the DPDK primary and conflicts
+with another primary in the default DPDK domain.
+
+```sh
+# host A (server, 192.168.1.2 / config.ini), ONE process:
+sudo FF_CONF=$PWD/config.ini ./result-native/bin/iperf3 -s -B 192.168.1.2
+
+# host B (client, 192.168.1.3 / config2.ini):
+sudo FF_CONF=$PWD/config2.ini ./result-native/bin/iperf3 -c 192.168.1.2 -t 10 -l 1M
+```
+
+Environment variables (replace the preload-era `FF_*` attach variables):
+
+| Variable       | Default        | Meaning                                  |
+|----------------|----------------|------------------------------------------|
+| `FF_CONF`      | `./config.ini` | f-stack config for the embedded instance |
+| `FF_PROC_TYPE` | `primary`      | DPDK process type                        |
+| `FF_PROC_ID`   | `0`            | f-stack proc id (selects port/lcore)     |
+
+Result (2026-06-12, E810 100G, single stream, 1500 MTU):
 
 ```
 [129]   0.00-10.00  sec  24.3 GBytes  20.9 Gbits/sec   sender
 [129]   0.00-10.00  sec  24.3 GBytes  20.9 Gbits/sec   receiver
 ```
 
-(vs 19.2 Gbit/s with the LD_PRELOAD pair, which needs two cores per host.)
-Env: `FF_CONF` (config path), `FF_PROC_TYPE`, `FF_PROC_ID`. TCP only.
+vs 19.2 Gbit/s for the LD_PRELOAD pair — +9% throughput at **half the CPU**
+(one core/host instead of two), i.e. per-core throughput roughly doubles.
+This deployment model matches what F-Stack upstream intends for production
+apps (the nginx/redis ports) and what the Z-stack paper uses as its
+F-Stack baseline.
+
+Native-mode notes:
+
+- The stack boots inside iperf3: expect the f-stack banner (and the three
+  benign `kernel_sysctlbyname failed` warnings) before "Server listening".
+- iperf3 pumps the stack for 100 ms at exit (`atexit`) so queued FINs reach
+  the wire — without this the peer only notices closed connections via its
+  receive timeout.
+- TCP only for now: the UDP connect handshake still does a raw blocking
+  read. The port lives in `nix/patches/iperf311-ff-native.patch`
+  (development history on the `ff-native` branch in `iperf_fstack/`).
 
 Tuning journey for the LD_PRELOAD number (each step measured): 12.9 (baseline after
 the timer fixes) -> 13.0 (tso=1 + tx_csum_offoad_skip=0 on the sender; the
