@@ -8,6 +8,7 @@ nix build .#fstack         # libfstack.a + headers + examples + syscall adapter
 nix build .#fstack-iperf   # heatheart3/Fstack-iperf  (vanilla iperf 3.17.1+, see below)
 nix build .#iperf-fstack   # guhaoyu2005/iperf_fstack (vanilla iperf 3.11, see below)
 nix build .#iperf3-fstack  # iperf3 wrapped with LD_PRELOAD=libff_syscall.so
+nix build .#iperf-fstack-native  # iperf3 compiled directly against ff_api (fastest)
 nix build .#all            # everything, symlink-joined (also the default package)
 ```
 
@@ -153,7 +154,30 @@ build, pcap off):
 [257]   0.00-10.00  sec  22.4 GBytes  19.2 Gbits/sec   receiver
 ```
 
-Tuning journey for that number (each step measured): 12.9 (baseline after
+### Native iperf (no LD_PRELOAD): 20.9 Gbit/s on one core per host
+
+`iperf-fstack-native` embeds the F-Stack instance in the iperf3 binary
+(DPDK primary; new `ff_pump()` API drives the stack wherever iperf would
+block). No adapter process, no IPC, no shared-memory copies — one process,
+one core per host:
+
+```sh
+# host A:                          # host B:
+sudo FF_CONF=$PWD/config.ini \
+    ./result-native/bin/iperf3 -s -B 192.168.1.2
+                                   sudo FF_CONF=$PWD/config2.ini \
+                                       ./result-native/bin/iperf3 -c 192.168.1.2 -t 10 -l 1M
+```
+
+```
+[129]   0.00-10.00  sec  24.3 GBytes  20.9 Gbits/sec   sender
+[129]   0.00-10.00  sec  24.3 GBytes  20.9 Gbits/sec   receiver
+```
+
+(vs 19.2 Gbit/s with the LD_PRELOAD pair, which needs two cores per host.)
+Env: `FF_CONF` (config path), `FF_PROC_TYPE`, `FF_PROC_ID`. TCP only.
+
+Tuning journey for the LD_PRELOAD number (each step measured): 12.9 (baseline after
 the timer fixes) -> 13.0 (tso=1 + tx_csum_offoad_skip=0 on the sender; the
 two MUST be flipped together on E810 -- csum offload alone or tso alone
 trips the NIC's MDD and kills the TX queue) -> 13.9 (FF_IPFW/FF_NETGRAPH
