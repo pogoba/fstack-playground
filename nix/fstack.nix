@@ -50,6 +50,10 @@ stdenv.mkDerivation {
     # Enable hardware LRO (upstream leaves it '#if 0'): RX-side mirror of
     # TSO, collapses the receiver's dominant per-packet costs.
     ./patches/ff-enable-lro.patch
+    # ff_pump(): run a single stack-loop iteration, so sequential native
+    # apps can drive the stack wherever they would otherwise block,
+    # instead of inverting into an ff_run() callback.
+    ./patches/ff-add-ff-pump.patch
   ];
 
   postPatch = ''

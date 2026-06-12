@@ -84,6 +84,54 @@ let
     ./patches/iperf311-timeout-connect-select.patch
   ];
 
+  # iperf3 compiled natively against ff_api: the app embeds the F-Stack
+  # instance (no LD_PRELOAD adapter, no IPC, no shm copies) and pumps the
+  # stack via ff_pump() wherever it would block. Runs as the DPDK primary:
+  #   sudo FF_CONF=$PWD/config.ini ./result/bin/iperf3 -s -B <addr>
+  # TCP only for now (the UDP connect handshake still does a raw blocking
+  # read).
+  iperf-fstack-native = stdenv.mkDerivation {
+    pname = "iperf-fstack-native";
+    version = "3.11-ff-native";
+    src = builtins.path {
+      path = iperfFstackRoot;
+      name = "iperf-fstack-native-src";
+      filter = path: type: baseNameOf path != ".git";
+    };
+    patches = [
+      ./patches/iperf311-timeout-connect-select.patch
+      ./patches/iperf311-ff-native.patch
+    ];
+    nativeBuildInputs = [ pkgs.pkg-config ];
+    buildInputs = [
+      pkgs.openssl
+      pkgs.lksctp-tools
+      fstack
+      dpdk
+      pkgs.numactl
+      pkgs.zlib
+      pkgs.libpcap
+    ];
+    configureFlags = [
+      "--with-openssl=${lib.getDev pkgs.openssl}"
+      "--disable-shared"
+      "--enable-static"
+    ];
+    NIX_CFLAGS_COMPILE = "-DFF_NATIVE -I${fstack}/include";
+    preConfigure = ''
+      # libtool reorders bare -l/-l: arguments out of --whole-archive
+      # groups, breaking DPDK's constructor-based PMD registration; armor
+      # every archive reference as -Wl,... so libtool passes it verbatim.
+      dpdk_libs=$(pkg-config --static --libs libdpdk | sed -e 's/ -l:/ -Wl,-l:/g' -e 's/ -lrte_/ -Wl,-lrte_/g')
+      export LIBS="-L${fstack}/lib -Wl,--whole-archive,-lfstack,--no-whole-archive $dpdk_libs -lrt -lm -ldl -lcrypto -lz -pthread -lnuma"
+      # -no-pie must survive libtool (link_elf self-introspection breaks
+      # under PIE); smuggle it through the compiler driver.
+      export CC="gcc -no-pie"
+    '';
+    enableParallelBuilding = true;
+    meta.mainProgram = "iperf3";
+  };
+
   # Run iperf3 on top of F-Stack via the syscall-hijack adapter.
   # Requires a running `fstack` instance (see f-stack/adapter/syscall/README.md):
   #   fstack --conf /etc/f-stack.conf --proc-type=primary &
@@ -103,6 +151,7 @@ rec {
     fstack
     fstack-iperf
     iperf-fstack
+    iperf-fstack-native
     iperf3-fstack
     ;
 

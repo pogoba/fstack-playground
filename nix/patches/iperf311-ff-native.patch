@@ -1,0 +1,535 @@
+diff --git a/src/ff_native.h b/src/ff_native.h
+new file mode 100644
+index 0000000..c785ce6
+--- /dev/null
++++ b/src/ff_native.h
+@@ -0,0 +1,306 @@
++/*
++ * ff_native.h - native F-Stack backend for iperf3.
++ *
++ * Maps the BSD socket calls of this translation unit onto F-Stack's ff_*
++ * API for F-Stack file descriptors (fd >= FF_FD_BASE, i.e. fd_reserve in
++ * the f-stack config), and keeps libc behavior for everything else
++ * (stdio, files, getaddrinfo, ...).
++ *
++ * Blocking semantics: F-Stack sockets cannot block (the stack runs in the
++ * same thread). Every place iperf waits goes through select(), which is
++ * mapped here to a loop of zero-timeout ff_select() + ff_pump() — ff_pump
++ * runs one iteration of the stack's event loop (RX, TX drain, timers), so
++ * the stack makes progress exactly while the application waits.
++ *
++ * Include this header LAST, after all system and iperf headers, in every
++ * .c file that performs socket I/O. The wrapper functions are defined
++ * before the macros so they can call the real libc symbols.
++ */
++
++#ifndef IPERF_FF_NATIVE_H
++#define IPERF_FF_NATIVE_H
++#ifdef FF_NATIVE
++
++#include <sys/types.h>
++#include <sys/socket.h>
++#include <sys/select.h>
++#include <sys/ioctl.h>
++#include <unistd.h>
++#include <fcntl.h>
++#include <errno.h>
++#include <stdarg.h>
++#include <string.h>
++#include <time.h>
++
++#include <ff_api.h>
++
++#ifndef FF_FD_BASE
++#define FF_FD_BASE 128 /* must equal fd_reserve in the f-stack config */
++#endif
++
++static inline int
++ffn_is(int fd)
++{
++    return fd >= FF_FD_BASE;
++}
++
++static inline int
++ffn_socket(int domain, int type, int protocol)
++{
++    if ((domain == AF_INET || domain == AF_INET6) &&
++        (type == SOCK_STREAM || type == SOCK_DGRAM)) {
++        int fd = ff_socket(domain, type, protocol);
++        if (fd >= 0) {
++            /* F-Stack sockets must never block: the stack runs in this
++             * thread and only makes progress while we pump it. */
++            int on = 1;
++            ff_ioctl(fd, FIONBIO, &on);
++        }
++        return fd;
++    }
++    return socket(domain, type, protocol);
++}
++
++static inline int
++ffn_bind(int fd, const struct sockaddr *addr, socklen_t len)
++{
++    if (ffn_is(fd))
++        return ff_bind(fd, (const struct linux_sockaddr *)(const void *)addr, len);
++    return bind(fd, addr, len);
++}
++
++static inline int
++ffn_listen(int fd, int backlog)
++{
++    if (ffn_is(fd))
++        return ff_listen(fd, backlog);
++    return listen(fd, backlog);
++}
++
++static inline int
++ffn_accept(int fd, struct sockaddr *addr, socklen_t *len)
++{
++    if (ffn_is(fd)) {
++        int nfd = ff_accept(fd, (struct linux_sockaddr *)(void *)addr, len);
++        if (nfd >= 0) {
++            int on = 1;
++            ff_ioctl(nfd, FIONBIO, &on);
++        }
++        return nfd;
++    }
++    return accept(fd, addr, len);
++}
++
++static inline int
++ffn_connect(int fd, const struct sockaddr *addr, socklen_t len)
++{
++    if (ffn_is(fd))
++        return ff_connect(fd, (const struct linux_sockaddr *)(const void *)addr, len);
++    return connect(fd, addr, len);
++}
++
++static inline int
++ffn_close(int fd)
++{
++    if (ffn_is(fd))
++        return ff_close(fd);
++    return close(fd);
++}
++
++static inline ssize_t
++ffn_read(int fd, void *buf, size_t n)
++{
++    if (ffn_is(fd))
++        return ff_read(fd, buf, n);
++    return read(fd, buf, n);
++}
++
++static inline ssize_t
++ffn_write(int fd, const void *buf, size_t n)
++{
++    if (ffn_is(fd))
++        return ff_write(fd, buf, n);
++    return write(fd, buf, n);
++}
++
++static inline ssize_t
++ffn_recv(int fd, void *buf, size_t n, int flags)
++{
++    if (ffn_is(fd))
++        return ff_recv(fd, buf, n, flags);
++    return recv(fd, buf, n, flags);
++}
++
++static inline ssize_t
++ffn_send(int fd, const void *buf, size_t n, int flags)
++{
++    if (ffn_is(fd))
++        return ff_send(fd, buf, n, flags);
++    return send(fd, buf, n, flags);
++}
++
++static inline ssize_t
++ffn_sendto(int fd, const void *buf, size_t n, int flags,
++    const struct sockaddr *addr, socklen_t len)
++{
++    if (ffn_is(fd))
++        return ff_sendto(fd, buf, n, flags,
++            (const struct linux_sockaddr *)(const void *)addr, len);
++    return sendto(fd, buf, n, flags, addr, len);
++}
++
++static inline ssize_t
++ffn_recvfrom(int fd, void *buf, size_t n, int flags,
++    struct sockaddr *addr, socklen_t *len)
++{
++    if (ffn_is(fd))
++        return ff_recvfrom(fd, buf, n, flags,
++            (struct linux_sockaddr *)(void *)addr, len);
++    return recvfrom(fd, buf, n, flags, addr, len);
++}
++
++static inline int
++ffn_setsockopt(int fd, int level, int optname, const void *optval,
++    socklen_t optlen)
++{
++    if (ffn_is(fd))
++        /* ff_setsockopt translates Linux constants to FreeBSD ones */
++        return ff_setsockopt(fd, level, optname, optval, optlen);
++    return setsockopt(fd, level, optname, optval, optlen);
++}
++
++static inline int
++ffn_getsockopt(int fd, int level, int optname, void *optval,
++    socklen_t *optlen)
++{
++    if (ffn_is(fd))
++        return ff_getsockopt(fd, level, optname, optval, optlen);
++    return getsockopt(fd, level, optname, optval, optlen);
++}
++
++static inline int
++ffn_getsockname(int fd, struct sockaddr *addr, socklen_t *len)
++{
++    if (ffn_is(fd))
++        return ff_getsockname(fd, (struct linux_sockaddr *)(void *)addr, len);
++    return getsockname(fd, addr, len);
++}
++
++static inline int
++ffn_getpeername(int fd, struct sockaddr *addr, socklen_t *len)
++{
++    if (ffn_is(fd))
++        return ff_getpeername(fd, (struct linux_sockaddr *)(void *)addr, len);
++    return getpeername(fd, addr, len);
++}
++
++static inline int
++ffn_fcntl(int fd, int cmd, ...)
++{
++    va_list ap;
++    long arg;
++
++    va_start(ap, cmd);
++    arg = va_arg(ap, long);
++    va_end(ap);
++
++    if (ffn_is(fd)) {
++        /* F-Stack sockets are inherently nonblocking; humor the caller. */
++        if (cmd == F_GETFL)
++            return O_RDWR | O_NONBLOCK;
++        if (cmd == F_SETFL)
++            return 0;
++        return ff_fcntl(fd, cmd, arg);
++    }
++    return fcntl(fd, cmd, arg);
++}
++
++static inline int
++ffn_shutdown(int fd, int how)
++{
++    if (ffn_is(fd))
++        return ff_shutdown(fd, how);
++    return shutdown(fd, how);
++}
++
++/*
++ * select() over F-Stack fds: poll with zero timeout and pump the stack
++ * between polls; honor the caller's timeout with CLOCK_MONOTONIC. Mixed
++ * kernel/F-Stack fd sets are not supported (iperf only selects sockets).
++ */
++static inline int
++ffn_select(int nfds, fd_set *rs, fd_set *ws, fd_set *es, struct timeval *tv)
++{
++    struct timespec start, now;
++    fd_set rr, ww, ee;
++    struct timeval zero;
++    long timeout_us = -1;
++    int n;
++
++    if (nfds <= FF_FD_BASE)
++        return select(nfds, rs, ws, es, tv);
++
++    if (tv != NULL)
++        timeout_us = tv->tv_sec * 1000000L + tv->tv_usec;
++    clock_gettime(CLOCK_MONOTONIC, &start);
++
++    /* Always pump at least once so pending TX drains and RX progresses
++     * even when the poll below succeeds immediately. */
++    ff_pump();
++
++    for (;;) {
++        zero.tv_sec = 0;
++        zero.tv_usec = 0;
++        if (rs) rr = *rs;
++        if (ws) ww = *ws;
++        if (es) ee = *es;
++        n = ff_select(nfds, rs ? &rr : NULL, ws ? &ww : NULL,
++                es ? &ee : NULL, &zero);
++        if (n != 0) {
++            if (n > 0) {
++                if (rs) *rs = rr;
++                if (ws) *ws = ww;
++                if (es) *es = ee;
++            }
++            return n;
++        }
++
++        ff_pump();
++
++        if (timeout_us >= 0) {
++            long elapsed;
++            clock_gettime(CLOCK_MONOTONIC, &now);
++            elapsed = (now.tv_sec - start.tv_sec) * 1000000L +
++                (now.tv_nsec - start.tv_nsec) / 1000;
++            if (elapsed >= timeout_us) {
++                if (rs) FD_ZERO(rs);
++                if (ws) FD_ZERO(ws);
++                if (es) FD_ZERO(es);
++                return 0;
++            }
++        }
++    }
++}
++
++#define socket(a, b, c)            ffn_socket(a, b, c)
++#define bind(a, b, c)              ffn_bind(a, b, c)
++#define listen(a, b)               ffn_listen(a, b)
++#define accept(a, b, c)            ffn_accept(a, b, c)
++#define connect(a, b, c)           ffn_connect(a, b, c)
++#define close(a)                   ffn_close(a)
++#define read(a, b, c)              ffn_read(a, b, c)
++#define write(a, b, c)             ffn_write(a, b, c)
++#define recv(a, b, c, d)           ffn_recv(a, b, c, d)
++#define send(a, b, c, d)           ffn_send(a, b, c, d)
++#define sendto(a, b, c, d, e, f)   ffn_sendto(a, b, c, d, e, f)
++#define recvfrom(a, b, c, d, e, f) ffn_recvfrom(a, b, c, d, e, f)
++#define setsockopt(a, b, c, d, e)  ffn_setsockopt(a, b, c, d, e)
++#define getsockopt(a, b, c, d, e)  ffn_getsockopt(a, b, c, d, e)
++#define getsockname(a, b, c)       ffn_getsockname(a, b, c)
++#define getpeername(a, b, c)       ffn_getpeername(a, b, c)
++#define fcntl                      ffn_fcntl
++#define shutdown(a, b)             ffn_shutdown(a, b)
++#define select(a, b, c, d, e)      ffn_select(a, b, c, d, e)
++
++#endif /* FF_NATIVE */
++#endif /* IPERF_FF_NATIVE_H */
+diff --git a/src/iperf_api.c b/src/iperf_api.c
+index 500a165..bdeee5e 100644
+--- a/src/iperf_api.c
++++ b/src/iperf_api.c
+@@ -90,6 +90,11 @@
+ #include <openssl/bio.h>
+ #include <openssl/err.h>
+ #include "iperf_auth.h"
++
++#ifdef FF_NATIVE
++#include "ff_native.h"
++#endif
++
+ #endif /* HAVE_SSL */
+ 
+ /* Forwards. */
+@@ -2044,7 +2049,7 @@ iperf_exchange_parameters(struct iperf_test *test)
+         }
+ #endif //HAVE_SSL
+ 
+-        if ((s = test->protocol->listen(test)) < 0) {
++        if ((s = (test->protocol->listen)(test)) < 0) {
+ 	        if (iperf_set_send_state(test, SERVER_ERROR) != 0)
+                 return -1;
+             err = htonl(i_errno);
+diff --git a/src/iperf_client_api.c b/src/iperf_client_api.c
+index 5833068..5f030e5 100644
+--- a/src/iperf_client_api.c
++++ b/src/iperf_client_api.c
+@@ -45,6 +45,11 @@
+ #include "net.h"
+ #include "timer.h"
+ 
++#ifdef FF_NATIVE
++#include "ff_native.h"
++#endif
++
++
+ #if defined(HAVE_TCP_CONGESTION)
+ #if !defined(TCP_CA_NAME_MAX)
+ #define TCP_CA_NAME_MAX 16
+@@ -75,7 +80,7 @@ iperf_create_streams(struct iperf_test *test, int sender)
+             if (!sender && test->mode == BIDIRECTIONAL)
+                 test->bind_port += test->num_streams;
+         }
+-        s = test->protocol->connect(test);
++        s = (test->protocol->connect)(test);
+         test->bind_port = orig_bind_port;
+         if (s < 0)
+             return -1;
+diff --git a/src/iperf_server_api.c b/src/iperf_server_api.c
+index ea438c4..50396ef 100644
+--- a/src/iperf_server_api.c
++++ b/src/iperf_server_api.c
+@@ -60,6 +60,11 @@
+ #include "iperf_util.h"
+ #include "iperf_locale.h"
+ 
++#ifdef FF_NATIVE
++#include "ff_native.h"
++#endif
++
++
+ #if defined(HAVE_TCP_CONGESTION)
+ #if !defined(TCP_CA_NAME_MAX)
+ #define TCP_CA_NAME_MAX 16
+@@ -592,7 +597,7 @@ iperf_run_server(struct iperf_test *test)
+             if (test->state == CREATE_STREAMS) {
+                 if (FD_ISSET(test->prot_listener, &read_set)) {
+ 
+-                    if ((s = test->protocol->accept(test)) < 0) {
++                    if ((s = (test->protocol->accept)(test)) < 0) {
+ 			cleanup_server(test);
+                         return -1;
+ 		    }
+diff --git a/src/iperf_tcp.c b/src/iperf_tcp.c
+index 6d011d6..773efa3 100644
+--- a/src/iperf_tcp.c
++++ b/src/iperf_tcp.c
+@@ -46,6 +46,11 @@
+ 
+ #if defined(HAVE_FLOWLABEL)
+ #include "flowlabel.h"
++
++#ifdef FF_NATIVE
++#include "ff_native.h"
++#endif
++
+ #endif /* HAVE_FLOWLABEL */
+ 
+ /* iperf_tcp_recv
+diff --git a/src/iperf_udp.c b/src/iperf_udp.c
+index 61bfb72..b5f1a63 100644
+--- a/src/iperf_udp.c
++++ b/src/iperf_udp.c
+@@ -49,6 +49,11 @@
+ #include "cjson.h"
+ #include "portable_endian.h"
+ 
++#ifdef FF_NATIVE
++#include "ff_native.h"
++#endif
++
++
+ #if defined(HAVE_INTTYPES_H)
+ # include <inttypes.h>
+ #else
+diff --git a/src/main.c b/src/main.c
+index e367b08..1e8ee31 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -49,14 +49,49 @@
+ #include "net.h"
+ #include "units.h"
+ 
++#ifdef FF_NATIVE
++#include "ff_native.h"
++#endif
++
++
+ 
+ static int run(struct iperf_test *test);
+ 
+ 
+ /**************************************************************************/
++#ifdef FF_NATIVE
++/* Initialize the embedded F-Stack instance before anything touches the
++ * network. Configuration via environment: FF_CONF (default ./config.ini),
++ * FF_PROC_TYPE (primary), FF_PROC_ID (0). */
++static void
++ff_native_init(void)
++{
++    static char ptype[64], pid[64];
++    const char *conf = getenv("FF_CONF");
++    if (conf == NULL)
++        conf = "./config.ini";
++    snprintf(ptype, sizeof(ptype), "--proc-type=%s",
++        getenv("FF_PROC_TYPE") ? getenv("FF_PROC_TYPE") : "primary");
++    snprintf(pid, sizeof(pid), "--proc-id=%s",
++        getenv("FF_PROC_ID") ? getenv("FF_PROC_ID") : "0");
++    char *ff_argv[] = { "iperf3", "--conf", (char *) conf, ptype, pid };
++    if (ff_init(5, ff_argv) < 0) {
++        fprintf(stderr, "iperf3: ff_init failed\n");
++        exit(1);
++    }
++    /* ff_init/rte_eal_init parse their own argv with getopt and leave the
++     * global parser state behind; reset it for iperf's option parsing. */
++    optind = 0;
++}
++#endif
++
++
+ int
+ main(int argc, char **argv)
+ {
++#ifdef FF_NATIVE
++    ff_native_init();
++#endif
+     struct iperf_test *test;
+ 
+     // XXX: Setting the process affinity requires root on most systems.
+diff --git a/src/net.c b/src/net.c
+index 98f2c6c..92f9e1c 100644
+--- a/src/net.c
++++ b/src/net.c
+@@ -65,6 +65,11 @@
+ #include "net.h"
+ #include "timer.h"
+ 
++#ifdef FF_NATIVE
++#include "ff_native.h"
++#endif
++
++
+ /*
+  * Declaration of gerror in iperf_error.c.  Most other files in iperf3 can get this
+  * by including "iperf.h", but net.c lives "below" this layer.  Clearly the
+@@ -381,9 +386,19 @@ Nread(int fd, char *buf, size_t count, int prot)
+     while (nleft > 0) {
+         r = read(fd, buf, nleft);
+         if (r < 0) {
+-            if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
++            if (errno == EINTR)
+                 break;
+-            else if (errno == EPERM) {
++#ifndef FF_NATIVE
++            else if (errno == EAGAIN || errno == EWOULDBLOCK)
++                break;
++#endif
++            else if (errno == EPERM
++#ifdef FF_NATIVE
++                /* native: reads on F-Stack sockets return EAGAIN when they
++                 * would block; wait via select(), which pumps the stack */
++                || errno == EAGAIN || errno == EWOULDBLOCK
++#endif
++                ) {
+                 /* F-Stack: blocking reads that must wait fail with EPERM
+                  * (the stack cannot sleep). Wait for readability via the
+                  * hooked select() and retry; peer close wakes us with EOF. */
+@@ -421,15 +436,23 @@ Nwrite(int fd, const char *buf, size_t count, int prot)
+ 	if (r < 0) {
+ 	    switch (errno) {
+ 		case EINTR:
++#ifndef FF_NATIVE
+ 		case EAGAIN:
+ #if (EAGAIN != EWOULDBLOCK)
+ 		case EWOULDBLOCK:
++#endif
+ #endif
+ 		return count - nleft;
+ 
+ 		case ENOBUFS:
+ 		return NET_SOFTERROR;
+ 
++#ifdef FF_NATIVE
++		case EAGAIN:
++#if (EAGAIN != EWOULDBLOCK)
++		case EWOULDBLOCK:
++#endif
++#endif
+ 		case EPERM: {
+ 		/* F-Stack: blocking writes that must wait fail with EPERM
+ 		 * (the stack cannot sleep). Wait for writability via the
