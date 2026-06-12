@@ -418,10 +418,10 @@ index 61bfb72..b5f1a63 100644
  # include <inttypes.h>
  #else
 diff --git a/src/main.c b/src/main.c
-index e367b08..1e8ee31 100644
+index e367b08..34c329a 100644
 --- a/src/main.c
 +++ b/src/main.c
-@@ -49,14 +49,49 @@
+@@ -49,14 +49,65 @@
  #include "net.h"
  #include "units.h"
  
@@ -459,6 +459,21 @@ index e367b08..1e8ee31 100644
 +     * global parser state behind; reset it for iperf's option parsing. */
 +    optind = 0;
 +}
++
++/* The embedded stack only transmits while pumped: after iperf closes its
++ * sockets, drain for a moment so queued FINs actually leave the NIC and
++ * the peer sees a clean shutdown instead of vanished connections. */
++static void
++ff_native_drain(void)
++{
++    struct timespec t0, t;
++    clock_gettime(CLOCK_MONOTONIC, &t0);
++    do {
++        ff_pump();
++        clock_gettime(CLOCK_MONOTONIC, &t);
++    } while ((t.tv_sec - t0.tv_sec) * 1000000000L +
++             (t.tv_nsec - t0.tv_nsec) < 100000000L); /* 100 ms */
++}
 +#endif
 +
 +
@@ -467,6 +482,7 @@ index e367b08..1e8ee31 100644
  {
 +#ifdef FF_NATIVE
 +    ff_native_init();
++    atexit(ff_native_drain);
 +#endif
      struct iperf_test *test;
  
@@ -533,3 +549,19 @@ index 98f2c6c..92f9e1c 100644
  		case EPERM: {
  		/* F-Stack: blocking writes that must wait fail with EPERM
  		 * (the stack cannot sleep). Wait for writability via the
+diff --git a/src/tcp_info.c b/src/tcp_info.c
+index 6b75384..ee8d451 100644
+--- a/src/tcp_info.c
++++ b/src/tcp_info.c
+@@ -56,6 +56,11 @@
+ #include "iperf_api.h"
+ #include "iperf_locale.h"
+ 
++#ifdef FF_NATIVE
++#include "ff_native.h"
++#endif
++
++
+ /*************************************************************/
+ int
+ has_tcpinfo(void)
