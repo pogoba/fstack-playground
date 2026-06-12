@@ -9,6 +9,12 @@
 #                     nix-build nix/ -A iperf3-fstack   (iperf3 wrapped with libff_syscall.so LD_PRELOAD)
 {
   pkgs ? import <nixpkgs> { },
+  # Build libfstack.a and iperf-fstack-native with DWARF (-g, unstripped)
+  # for gdb against live processes. Disable for benchmark builds with the
+  # exact upstream codegen flags:
+  #   nix-build nix/ -A iperf-fstack-native --arg debug false
+  #   nix build .#iperf-fstack-native-release   (see ../flake.nix)
+  debug ? true,
   # Source roots; overridden by the flake with its path inputs.
   fstackRoot ? ../f-stack,
   fstackIperfRoot ? ../Fstack-iperf,
@@ -70,6 +76,7 @@ let
   fstack = pkgs.callPackage ./fstack.nix {
     src = fstackSrc;
     dpdk-fstack = dpdk;
+    withDebug = debug;
   };
 
   fstack-iperf = mkIperfFork "fstack-iperf" fstackIperfRoot [
@@ -118,9 +125,9 @@ let
       "--enable-static"
     ];
     NIX_CFLAGS_COMPILE = "-DFF_NATIVE -I${fstack}/include";
-    # keep DWARF: the ff-native port is still being debugged with gdb
-    # against live processes (see nix/README.md)
-    dontStrip = true;
+    # keep DWARF (autotools builds with -g -O2 anyway): the ff-native port
+    # is regularly debugged with gdb against live processes
+    dontStrip = debug;
     preConfigure = ''
       # libtool reorders bare -l/-l: arguments out of --whole-archive
       # groups, breaking DPDK's constructor-based PMD registration; armor

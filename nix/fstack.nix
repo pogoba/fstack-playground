@@ -12,6 +12,10 @@
   numactl,
   zlib,
   libpcap,
+  # Compile libfstack.a with DWARF (-g) and skip stripping, for gdb against
+  # live processes. Disable for benchmark builds with the exact upstream
+  # codegen flags (see `debug` in nix/default.nix).
+  withDebug ? true,
 }:
 
 stdenv.mkDerivation {
@@ -86,7 +90,7 @@ stdenv.mkDerivation {
 
   # keep the -g DWARF (see DEBUG= below) in libfstack.a: the FreeBSD stack
   # is regularly debugged with gdb against live processes
-  dontStrip = true;
+  dontStrip = withDebug;
 
   buildPhase = ''
     runHook preBuild
@@ -97,7 +101,7 @@ stdenv.mkDerivation {
     # every packet (profiled on both ends of the iperf rig); neither is
     # needed for a plain TCP/UDP stack.
     make -C lib -j$NIX_BUILD_CORES FF_IPFW= FF_NETGRAPH= \
-      DEBUG="-g -O2 -Wno-format-truncation -Wno-error=maybe-uninitialized -Wno-error=strict-aliasing"
+      ${lib.optionalString withDebug ''DEBUG="-g -O2 -Wno-format-truncation -Wno-error=maybe-uninitialized -Wno-error=strict-aliasing"''}
 
     # The example/adapter Makefiles expect ff_*.h preinstalled in
     # /usr/local/include; inject the in-tree header path via the environment

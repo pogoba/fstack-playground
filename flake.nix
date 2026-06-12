@@ -41,6 +41,16 @@
         fstackIperfRoot = inputs.fstack-iperf-src.outPath;
         iperfFstackRoot = inputs.iperf-fstack-src.outPath;
       };
+
+      # Same package set without DWARF/dontStrip in libfstack.a and the
+      # native iperf (exact upstream codegen flags) — for benchmark builds.
+      packagesRelease = import ./nix {
+        inherit pkgs;
+        debug = false;
+        fstackRoot = inputs.f-stack.outPath;
+        fstackIperfRoot = inputs.fstack-iperf-src.outPath;
+        iperfFstackRoot = inputs.iperf-fstack-src.outPath;
+      };
     in
     {
       packages.${system} = {
@@ -54,6 +64,9 @@
           all
           ;
         default = packages.all;
+        fstack-release = packagesRelease.fstack;
+        iperf-fstack-native-release = packagesRelease.iperf-fstack-native;
+        iperf3-fstack-release = packagesRelease.iperf3-fstack;
       };
 
       # Shell for hacking on f-stack/lib manually:
