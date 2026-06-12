@@ -1,8 +1,6 @@
-diff --git a/src/ff_native.h b/src/ff_native.h
-new file mode 100644
-index 0000000..c785ce6
---- /dev/null
-+++ b/src/ff_native.h
+diff --color -ruN ip0/src/ff_native.h ipa/src/ff_native.h
+--- a/src/ff_native.h	1970-01-01 00:00:00.000000000 +0000
++++ b/src/ff_native.h	2026-06-12 13:14:33.527800434 +0000
 @@ -0,0 +1,306 @@
 +/*
 + * ff_native.h - native F-Stack backend for iperf3.
@@ -310,10 +308,9 @@ index 0000000..c785ce6
 +
 +#endif /* FF_NATIVE */
 +#endif /* IPERF_FF_NATIVE_H */
-diff --git a/src/iperf_api.c b/src/iperf_api.c
-index 500a165..bdeee5e 100644
---- a/src/iperf_api.c
-+++ b/src/iperf_api.c
+diff --color -ruN ip0/src/iperf_api.c ipa/src/iperf_api.c
+--- a/src/iperf_api.c	2026-06-12 13:19:33.192305794 +0000
++++ b/src/iperf_api.c	2026-06-12 13:14:33.528800462 +0000
 @@ -90,6 +90,11 @@
  #include <openssl/bio.h>
  #include <openssl/err.h>
@@ -326,7 +323,7 @@ index 500a165..bdeee5e 100644
  #endif /* HAVE_SSL */
  
  /* Forwards. */
-@@ -2044,7 +2049,7 @@ iperf_exchange_parameters(struct iperf_test *test)
+@@ -2044,7 +2049,7 @@
          }
  #endif //HAVE_SSL
  
@@ -335,10 +332,9 @@ index 500a165..bdeee5e 100644
  	        if (iperf_set_send_state(test, SERVER_ERROR) != 0)
                  return -1;
              err = htonl(i_errno);
-diff --git a/src/iperf_client_api.c b/src/iperf_client_api.c
-index 5833068..5f030e5 100644
---- a/src/iperf_client_api.c
-+++ b/src/iperf_client_api.c
+diff --color -ruN ip0/src/iperf_client_api.c ipa/src/iperf_client_api.c
+--- a/src/iperf_client_api.c	2026-06-12 13:19:33.193305823 +0000
++++ b/src/iperf_client_api.c	2026-06-12 13:14:33.528800462 +0000
 @@ -45,6 +45,11 @@
  #include "net.h"
  #include "timer.h"
@@ -351,7 +347,7 @@ index 5833068..5f030e5 100644
  #if defined(HAVE_TCP_CONGESTION)
  #if !defined(TCP_CA_NAME_MAX)
  #define TCP_CA_NAME_MAX 16
-@@ -75,7 +80,7 @@ iperf_create_streams(struct iperf_test *test, int sender)
+@@ -75,7 +80,7 @@
              if (!sender && test->mode == BIDIRECTIONAL)
                  test->bind_port += test->num_streams;
          }
@@ -360,10 +356,9 @@ index 5833068..5f030e5 100644
          test->bind_port = orig_bind_port;
          if (s < 0)
              return -1;
-diff --git a/src/iperf_server_api.c b/src/iperf_server_api.c
-index ea438c4..50396ef 100644
---- a/src/iperf_server_api.c
-+++ b/src/iperf_server_api.c
+diff --color -ruN ip0/src/iperf_server_api.c ipa/src/iperf_server_api.c
+--- a/src/iperf_server_api.c	2026-06-12 13:19:33.193305823 +0000
++++ b/src/iperf_server_api.c	2026-06-12 13:14:33.528800462 +0000
 @@ -60,6 +60,11 @@
  #include "iperf_util.h"
  #include "iperf_locale.h"
@@ -376,7 +371,7 @@ index ea438c4..50396ef 100644
  #if defined(HAVE_TCP_CONGESTION)
  #if !defined(TCP_CA_NAME_MAX)
  #define TCP_CA_NAME_MAX 16
-@@ -592,7 +597,7 @@ iperf_run_server(struct iperf_test *test)
+@@ -592,7 +597,7 @@
              if (test->state == CREATE_STREAMS) {
                  if (FD_ISSET(test->prot_listener, &read_set)) {
  
@@ -385,10 +380,9 @@ index ea438c4..50396ef 100644
  			cleanup_server(test);
                          return -1;
  		    }
-diff --git a/src/iperf_tcp.c b/src/iperf_tcp.c
-index 6d011d6..773efa3 100644
---- a/src/iperf_tcp.c
-+++ b/src/iperf_tcp.c
+diff --color -ruN ip0/src/iperf_tcp.c ipa/src/iperf_tcp.c
+--- a/src/iperf_tcp.c	2026-06-12 13:19:33.204306135 +0000
++++ b/src/iperf_tcp.c	2026-06-12 13:14:33.528800462 +0000
 @@ -46,6 +46,11 @@
  
  #if defined(HAVE_FLOWLABEL)
@@ -401,10 +395,9 @@ index 6d011d6..773efa3 100644
  #endif /* HAVE_FLOWLABEL */
  
  /* iperf_tcp_recv
-diff --git a/src/iperf_udp.c b/src/iperf_udp.c
-index 61bfb72..b5f1a63 100644
---- a/src/iperf_udp.c
-+++ b/src/iperf_udp.c
+diff --color -ruN ip0/src/iperf_udp.c ipa/src/iperf_udp.c
+--- a/src/iperf_udp.c	2026-06-12 13:19:33.193305823 +0000
++++ b/src/iperf_udp.c	2026-06-12 13:14:33.528800462 +0000
 @@ -49,6 +49,11 @@
  #include "cjson.h"
  #include "portable_endian.h"
@@ -417,10 +410,26 @@ index 61bfb72..b5f1a63 100644
  #if defined(HAVE_INTTYPES_H)
  # include <inttypes.h>
  #else
-diff --git a/src/main.c b/src/main.c
-index e367b08..34c329a 100644
---- a/src/main.c
-+++ b/src/main.c
+diff --color -ruN ip0/src/iperf_util.c ipa/src/iperf_util.c
+--- a/src/iperf_util.c	2026-06-12 13:19:33.194305851 +0000
++++ b/src/iperf_util.c	2026-06-12 13:19:32.830295525 +0000
+@@ -50,6 +50,13 @@
+ #include "iperf.h"
+ #include "iperf_api.h"
+ 
++#ifdef FF_NATIVE
++/* is_closed() probes sockets with select()+recv(); without this include
++ * those calls hit the Linux libc on F-Stack fds (EBADF) and every freshly
++ * accepted stream is mistaken for a closed one and silently dropped. */
++#include "ff_native.h"
++#endif
++
+ /*
+  * Read entropy from /dev/urandom
+  * Errors are fatal.
+diff --color -ruN ip0/src/main.c ipa/src/main.c
+--- a/src/main.c	2026-06-12 13:19:33.194305851 +0000
++++ b/src/main.c	2026-06-12 13:14:33.529800491 +0000
 @@ -49,14 +49,65 @@
  #include "net.h"
  #include "units.h"
@@ -487,10 +496,9 @@ index e367b08..34c329a 100644
      struct iperf_test *test;
  
      // XXX: Setting the process affinity requires root on most systems.
-diff --git a/src/net.c b/src/net.c
-index 98f2c6c..92f9e1c 100644
---- a/src/net.c
-+++ b/src/net.c
+diff --color -ruN ip0/src/net.c ipa/src/net.c
+--- a/src/net.c	2026-06-12 13:19:33.204306135 +0000
++++ b/src/net.c	2026-06-12 13:14:33.529800491 +0000
 @@ -65,6 +65,11 @@
  #include "net.h"
  #include "timer.h"
@@ -503,7 +511,7 @@ index 98f2c6c..92f9e1c 100644
  /*
   * Declaration of gerror in iperf_error.c.  Most other files in iperf3 can get this
   * by including "iperf.h", but net.c lives "below" this layer.  Clearly the
-@@ -381,9 +386,19 @@ Nread(int fd, char *buf, size_t count, int prot)
+@@ -381,9 +386,19 @@
      while (nleft > 0) {
          r = read(fd, buf, nleft);
          if (r < 0) {
@@ -525,7 +533,7 @@ index 98f2c6c..92f9e1c 100644
                  /* F-Stack: blocking reads that must wait fail with EPERM
                   * (the stack cannot sleep). Wait for readability via the
                   * hooked select() and retry; peer close wakes us with EOF. */
-@@ -421,15 +436,23 @@ Nwrite(int fd, const char *buf, size_t count, int prot)
+@@ -421,15 +436,23 @@
  	if (r < 0) {
  	    switch (errno) {
  		case EINTR:
@@ -533,8 +541,8 @@ index 98f2c6c..92f9e1c 100644
  		case EAGAIN:
  #if (EAGAIN != EWOULDBLOCK)
  		case EWOULDBLOCK:
-+#endif
  #endif
++#endif
  		return count - nleft;
  
  		case ENOBUFS:
@@ -549,10 +557,9 @@ index 98f2c6c..92f9e1c 100644
  		case EPERM: {
  		/* F-Stack: blocking writes that must wait fail with EPERM
  		 * (the stack cannot sleep). Wait for writability via the
-diff --git a/src/tcp_info.c b/src/tcp_info.c
-index 6b75384..ee8d451 100644
---- a/src/tcp_info.c
-+++ b/src/tcp_info.c
+diff --color -ruN ip0/src/tcp_info.c ipa/src/tcp_info.c
+--- a/src/tcp_info.c	2026-06-12 13:19:33.195305880 +0000
++++ b/src/tcp_info.c	2026-06-12 13:14:33.529800491 +0000
 @@ -56,6 +56,11 @@
  #include "iperf_api.h"
  #include "iperf_locale.h"

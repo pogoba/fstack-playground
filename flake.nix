@@ -49,6 +49,7 @@
           fstack
           fstack-iperf
           iperf-fstack
+          iperf-fstack-native
           iperf3-fstack
           all
           ;

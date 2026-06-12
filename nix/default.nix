@@ -118,6 +118,9 @@ let
       "--enable-static"
     ];
     NIX_CFLAGS_COMPILE = "-DFF_NATIVE -I${fstack}/include";
+    # keep DWARF: the ff-native port is still being debugged with gdb
+    # against live processes (see nix/README.md)
+    dontStrip = true;
     preConfigure = ''
       # libtool reorders bare -l/-l: arguments out of --whole-archive
       # groups, breaking DPDK's constructor-based PMD registration; armor

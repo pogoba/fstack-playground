@@ -54,6 +54,12 @@ stdenv.mkDerivation {
     # apps can drive the stack wherever they would otherwise block,
     # instead of inverting into an ff_run() callback.
     ./patches/ff-add-ff-pump.patch
+    # [vdevN] iface= emits an eth_vhost vdev (vhost-user backend, creates
+    # the socket) instead of the hardcoded virtio_user (frontend); two
+    # F-Stack instances can then pair up over one unix socket with no
+    # physical NIC. Also passes --single-file-segments, which virtio_user
+    # needs to share its memory with the backend.
+    ./patches/ff-vdev-eth-vhost.patch
   ];
 
   postPatch = ''
@@ -78,6 +84,10 @@ stdenv.mkDerivation {
 
   enableParallelBuilding = true;
 
+  # keep the -g DWARF (see DEBUG= below) in libfstack.a: the FreeBSD stack
+  # is regularly debugged with gdb against live processes
+  dontStrip = true;
+
   buildPhase = ''
     runHook preBuild
 
@@ -86,7 +96,8 @@ stdenv.mkDerivation {
     # FF_IPFW/FF_NETGRAPH off: ipfw_chk costs ~4-6% of the instance core on
     # every packet (profiled on both ends of the iperf rig); neither is
     # needed for a plain TCP/UDP stack.
-    make -C lib -j$NIX_BUILD_CORES FF_IPFW= FF_NETGRAPH=
+    make -C lib -j$NIX_BUILD_CORES FF_IPFW= FF_NETGRAPH= \
+      DEBUG="-g -O2 -Wno-format-truncation -Wno-error=maybe-uninitialized -Wno-error=strict-aliasing"
 
     # The example/adapter Makefiles expect ff_*.h preinstalled in
     # /usr/local/include; inject the in-tree header path via the environment

@@ -217,6 +217,62 @@ Native-mode notes:
   read. The port lives in `nix/patches/iperf311-ff-native.patch`
   (development history on the `ff-native` branch in `iperf_fstack/`).
 
+### Example: vhost-user/virtio-user pair, no physical NIC — 12.1 Gbit/s on one host
+
+Two native-iperf F-Stack instances can talk to each other over a DPDK
+vhost-user link (one unix socket, shared-memory rings) — no NIC, no vfio
+binding, runs on any machine with hugepages. Same topology as a
+`--vdev eth_vhost0` test app paired with a virtio_user pktgen.
+
+F-Stack's config already parses `[vdevN]` sections but only ever emitted
+`virtio_user` (the frontend); `nix/patches/ff-vdev-eth-vhost.patch` makes
+`iface=` emit an `eth_vhost` vdev (the backend, which creates the socket
+and serves the rings) and adds `--single-file-segments` (virtio_user must
+hand its memory to the backend as a small fd table). The two roles:
+
+| Side | config | vdev | role |
+|------|--------|------|------|
+| A (server) | `config-vhost-a.ini` | `[vdev0] iface=/tmp/fstack-vhost0.sock` | `eth_vhost0` backend — creates the socket, **start first** |
+| B (client) | `config-vhost-b.ini` | `[vdev0] path=/tmp/fstack-vhost0.sock` | `virtio_user0` frontend — connects to it |
+
+Both configs set `nb_vdev=1` (implies `--no-pci`), a distinct
+`file_prefix` (two DPDK primaries on one host), distinct cores
+(`lcore_mask=2` / `4`), and a private subnet (192.168.31.1 / .2).
+
+```sh
+# server, side A (creates /tmp/fstack-vhost0.sock):
+sudo FF_CONF=$PWD/config-vhost-a.ini ./result-native/bin/iperf3 -s -B 192.168.31.1
+
+# client, side B (after the socket exists):
+sudo FF_CONF=$PWD/config-vhost-b.ini ./result-native/bin/iperf3 -c 192.168.31.1 -t 10 -l 1M
+```
+
+Result (2026-06-12, one host, single stream, one core per instance,
+1500 MTU, software checksums — the vhost PMD prints "csum will be done in
+SW"):
+
+```
+[129]   0.00-10.00  sec  14.1 GBytes  12.1 Gbits/sec   sender
+[129]   0.00-10.05  sec  14.1 GBytes  12.0 Gbits/sec   receiver
+```
+
+Notes:
+
+- Start order matters: the `virtio_user` frontend needs the backend's
+  socket at EAL init. Stale sockets from a crashed backend must be removed
+  (`rm /tmp/fstack-vhost0.sock`) before restarting.
+- The link reports "10000 Mbps" (backend) / "4294967295 Mbps" (frontend);
+  both are cosmetic — throughput is bounded by CPU and the shared-memory
+  copies, not a link rate.
+- Debugging this rig flushed out a latent bug in the native port:
+  `is_closed()` in `iperf_util.c` was the one socket-touching call site
+  not routed through the `ffn_*` layer, so it probed F-Stack fds with the
+  *Linux* `select()` (EBADF) and the server silently dropped every
+  accepted data stream. On vfio/physical-NIC setups DPDK keeps enough real
+  Linux fds open that the fd number aliases an open file and the probe
+  accidentally "works" — worth remembering when a native port misbehaves
+  only in some environments.
+
 Tuning journey for the LD_PRELOAD number (each step measured): 12.9 (baseline after
 the timer fixes) -> 13.0 (tso=1 + tx_csum_offoad_skip=0 on the sender; the
 two MUST be flipped together on E810 -- csum offload alone or tso alone

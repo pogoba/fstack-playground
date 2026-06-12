@@ -1,0 +1,44 @@
+--- a/lib/ff_config.c	2026-06-12 11:38:12.853152917 +0000
++++ b/lib/ff_config.c	2026-06-12 11:39:14.355896113 +0000
+@@ -1114,7 +1114,26 @@
+     }
+ 
+     if (cfg->dpdk.nb_vdev) {
++        int nb_virtio_user = 0;
+         for (i=0; i<cfg->dpdk.nb_vdev; i++) {
++            /*
++             * iface => vhost-user backend (eth_vhost): creates the unix
++             * socket and serves the rings; the peer is a virtio_user
++             * frontend, e.g. another F-Stack instance with path= set.
++             */
++            if (cfg->dpdk.vdev_cfgs[i].iface) {
++                sprintf(temp, "--vdev=eth_vhost%d,iface=%s",
++                    cfg->dpdk.vdev_cfgs[i].vdev_id,
++                    cfg->dpdk.vdev_cfgs[i].iface);
++                if (cfg->dpdk.vdev_cfgs[i].nb_queues) {
++                    sprintf(temp2, ",queues=%u",
++                        cfg->dpdk.vdev_cfgs[i].nb_queues);
++                    strcat(temp, temp2);
++                }
++                dpdk_argv[n++] = strdup(temp);
++                continue;
++            }
++            nb_virtio_user++;
+             sprintf(temp, "--vdev=virtio_user%d,path=%s",
+                 cfg->dpdk.vdev_cfgs[i].vdev_id,
+                 cfg->dpdk.vdev_cfgs[i].path);
+@@ -1142,6 +1161,14 @@
+         }
+         sprintf(temp, "--no-pci");
+         dpdk_argv[n++] = strdup(temp);
++        /*
++         * virtio_user hands its memory to the vhost backend as a region
++         * table with a small fd limit; one fd per memseg list (instead of
++         * one per page) keeps the table within bounds.
++         */
++        if (nb_virtio_user) {
++            dpdk_argv[n++] = strdup("--single-file-segments");
++        }
+         if (!cfg->dpdk.file_prefix) {
+             sprintf(temp, "--file-prefix=container");
+             dpdk_argv[n++] = strdup(temp);
