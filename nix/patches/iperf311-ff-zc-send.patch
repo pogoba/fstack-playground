@@ -1,0 +1,61 @@
+diff --color -ruN si_a/src/ff_native.h si_b/src/ff_native.h
+--- a/src/ff_native.h	2026-06-13 17:19:08.192569061 +0000
++++ b/src/ff_native.h	2026-06-13 17:19:08.243570509 +0000
+@@ -42,6 +42,11 @@
+  * ff_recv_mbuf (zero-copy) instead of copying reads. */
+ extern int ffn_zc_recv;
+ 
++/* Defined in iperf_tcp.c; set from FF_ZC_SEND in ff_native_init(). Nonzero
++ * => sender transmits via ff_zc_mbuf_ext + ff_zc_send (external-buffer
++ * zero-copy) instead of a copying write. */
++extern int ffn_zc_send;
++
+ #ifndef FF_FD_BASE
+ #define FF_FD_BASE 128 /* must equal fd_reserve in the f-stack config */
+ #endif
+diff --color -ruN si_a/src/iperf_tcp.c si_b/src/iperf_tcp.c
+--- a/src/iperf_tcp.c	2026-06-13 17:19:08.193569089 +0000
++++ b/src/iperf_tcp.c	2026-06-13 17:19:08.243570509 +0000
+@@ -54,6 +54,7 @@
+ /* Definition lives here (libiperf) so both libiperf and main can reference
+  * it; main.c's ff_native_init() sets it from FF_ZC_RECV. */
+ int ffn_zc_recv = 0;
++int ffn_zc_send = 0;
+ #endif
+ #endif
+ 
+@@ -115,6 +116,20 @@
+     if (!sp->pending_size)
+ 	sp->pending_size = sp->settings->blksize;
+ 
++#ifdef FF_NATIVE
++    if (ffn_zc_send && sp->socket >= FF_FD_BASE) {
++        /* External-buffer zero-copy send: wrap sp->buffer in an mbuf with
++         * no data copy and hand it to the stack. sp->buffer is constant and
++         * the send is select-gated (space >= lowat), so this is safe. */
++        struct ff_zc_mbuf zm;
++        if (ff_zc_mbuf_ext(&zm, sp->buffer, sp->pending_size) == 0)
++            r = ff_zc_send(sp->socket, zm.bsd_mbuf, sp->pending_size);
++        else
++            r = Nwrite(sp->socket, sp->buffer, sp->pending_size, Ptcp);
++        if (r < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK))
++            r = 0;
++    } else
++#endif
+     if (sp->test->zerocopy)
+ 	r = Nsendfile(sp->buffer_fd, sp->socket, sp->buffer, sp->pending_size);
+     else
+diff --color -ruN si_a/src/main.c si_b/src/main.c
+--- a/src/main.c	2026-06-13 17:19:08.193569089 +0000
++++ b/src/main.c	2026-06-13 17:19:08.243570509 +0000
+@@ -86,6 +86,10 @@
+     ffn_zc_recv = getenv("FF_ZC_RECV") != NULL;
+     if (ffn_zc_recv)
+         fprintf(stderr, "iperf3: FF_NATIVE zero-copy receive enabled\n");
++
++    ffn_zc_send = getenv("FF_ZC_SEND") != NULL;
++    if (ffn_zc_send)
++        fprintf(stderr, "iperf3: FF_NATIVE zero-copy send enabled\n");
+ }
+ 
+ /* The embedded stack only transmits while pumped: after iperf closes its

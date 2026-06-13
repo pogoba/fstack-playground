@@ -1,0 +1,78 @@
+diff --color -ruN ta2/lib/ff_api.h tb2/lib/ff_api.h
+--- a/lib/ff_api.h	2026-06-13 17:18:01.670680590 +0000
++++ b/lib/ff_api.h	2026-06-13 17:18:25.551358524 +0000
+@@ -411,6 +411,14 @@
+ ssize_t ff_zc_send(int fd, const void *mb, size_t nbytes);
+ 
+ /*
++ * Build a zero-copy send mbuf that references an application-owned buffer
++ * directly (no data copy), for use with ff_zc_send.  The buffer must remain
++ * valid and unmodified until the data is ACK'd; a constant, reused send
++ * buffer satisfies this.  Returns 0 and fills *m on success, -1 on error.
++ */
++int ff_zc_mbuf_ext(struct ff_zc_mbuf *m, void *buf, int len);
++
++/*
+  * Create user thread context for LD_PRELOAD mode.
+  * It saved in ff_so_context.
+  */
+diff --color -ruN ta2/lib/ff_api.symlist tb2/lib/ff_api.symlist
+--- a/lib/ff_api.symlist	2026-06-13 17:18:01.677680789 +0000
++++ b/lib/ff_api.symlist	2026-06-13 17:18:25.551358524 +0000
+@@ -61,6 +61,7 @@
+ ff_zc_mbuf_write
+ ff_zc_mbuf_read
+ ff_zc_send
++ff_zc_mbuf_ext
+ ff_get_traffic
+ ff_pthread_create
+ ff_pthread_join
+diff --color -ruN ta2/lib/ff_veth.c tb2/lib/ff_veth.c
+--- a/lib/ff_veth.c	2026-06-13 17:18:01.663680392 +0000
++++ b/lib/ff_veth.c	2026-06-13 17:18:25.551358524 +0000
+@@ -322,6 +322,45 @@
+     return 0;
+ }
+ 
++/* Zero-copy send from an application-owned buffer: wrap it in an external
++ * mbuf (no data copy) for ff_zc_send.  The buffer must stay valid and
++ * unmodified until the stack has ACK'd the data; a constant/reused send
++ * buffer (e.g. iperf's) satisfies this.  The ext free callback is a no-op
++ * because the application, not the stack, owns the storage. */
++static void
++ff_zc_ext_noop_free(struct mbuf *m)
++{
++    (void)m;
++}
++
++int
++ff_zc_mbuf_ext(struct ff_zc_mbuf *m, void *buf, int len)
++{
++    struct mbuf *mb;
++
++    if (m == NULL || buf == NULL || len <= 0) {
++        return -1;
++    }
++
++    mb = m_gethdr(M_WAITOK, MT_DATA);
++    if (mb == NULL) {
++        return -1;
++    }
++
++    m_extadd(mb, (char *)buf, len, ff_zc_ext_noop_free, NULL, NULL, 0,
++        EXT_DISPOSABLE);
++    mb->m_len = len;
++    mb->m_pkthdr.len = len;
++    mb->m_next = NULL;
++    mb->m_nextpkt = NULL;
++
++    m->bsd_mbuf = m->bsd_mbuf_off = mb;
++    m->off = len;
++    m->len = len;
++
++    return 0;
++}
++
+ int
+ ff_zc_mbuf_write(struct ff_zc_mbuf *zm, const char *data, int len)
+ {

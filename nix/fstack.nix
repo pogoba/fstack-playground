@@ -81,6 +81,10 @@ stdenv.mkDerivation {
     # the ff_zc_mbuf_read stub never did. Used by native iperf under
     # FF_ZC_RECV.
     ./patches/ff-add-recv-mbuf.patch
+    # ff_zc_mbuf_ext(): build a zero-copy send mbuf that references an
+    # application-owned buffer via m_extadd (no data copy), for ff_zc_send.
+    # Used by native iperf under FF_ZC_SEND.
+    ./patches/ff-add-zc-mbuf-ext.patch
   ];
 
   postPatch = ''
@@ -117,7 +121,10 @@ stdenv.mkDerivation {
     # FF_IPFW/FF_NETGRAPH off: ipfw_chk costs ~4-6% of the instance core on
     # every packet (profiled on both ends of the iperf rig); neither is
     # needed for a plain TCP/UDP stack.
-    make -C lib -j$NIX_BUILD_CORES FF_IPFW= FF_NETGRAPH= \
+    # FF_ZC_SEND=1: compile the ff_zc_send() zero-copy fast path (and the
+    # m_uiotombuf magic that consumes a pre-built mbuf). Plain ff_write
+    # paths opt out by setting uio_offset=0, so non-ZC sends are unaffected.
+    make -C lib -j$NIX_BUILD_CORES FF_IPFW= FF_NETGRAPH= FF_ZC_SEND=1 \
       ${lib.optionalString withDebug ''DEBUG="-g -O2 -Wno-format-truncation -Wno-error=maybe-uninitialized -Wno-error=strict-aliasing"''}
 
     # The example/adapter Makefiles expect ff_*.h preinstalled in

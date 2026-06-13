@@ -112,6 +112,10 @@ let
       # each stream via ff_recv_mbuf + ff_mbuf_free instead of a copying
       # read. A/B-toggleable in one binary.
       ./patches/iperf311-ff-zc-recv.patch
+      # Zero-copy send path (env FF_ZC_SEND=1): the sender transmits via
+      # ff_zc_mbuf_ext + ff_zc_send (external-buffer mbuf, no copy) instead
+      # of a copying write. A/B-toggleable in one binary.
+      ./patches/iperf311-ff-zc-send.patch
     ];
     nativeBuildInputs = [ pkgs.pkg-config ];
     buildInputs = [
