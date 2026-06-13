@@ -1,5 +1,22 @@
 {
   "nodes": {
+    "dpdk-cvms-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1774123713,
+        "narHash": "sha256-WIrUZNlLt6eAR1itgjOi1DZgskW+ndXTLMcWS0cVjls=",
+        "owner": "TUM-DSE",
+        "repo": "dpdk-cvms",
+        "rev": "064ff097be4782f57f2adf7776ca333a63e1b8db",
+        "type": "github"
+      },
+      "original": {
+        "owner": "TUM-DSE",
+        "ref": "wallet-vfio-snp",
+        "repo": "dpdk-cvms",
+        "type": "github"
+      }
+    },
     "f-stack": {
       "flake": false,
       "locked": {
@@ -69,6 +86,7 @@
     },
     "root": {
       "inputs": {
+        "dpdk-cvms-src": "dpdk-cvms-src",
         "f-stack": "f-stack",
         "fstack-iperf-bad-src": "fstack-iperf-bad-src",
         "iperf-fstack-src": "iperf-fstack-src",

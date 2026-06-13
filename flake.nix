@@ -23,6 +23,13 @@
       url = "github:guhaoyu2005/iperf_fstack/6cdcde886fa1400dd367c1da54da13ab4f4c5ea7";
       flake = false;
     };
+    # Upstream DPDK 25.03 + TUM-DSE CVM (SEV-SNP / VFIO-noiommu) patches —
+    # used by the *-cvms package variants so F-Stack runs inside a CVM.
+    # Pinned to wallet-vfio-snp HEAD; bump the URL to update.
+    dpdk-cvms-src = {
+      url = "github:TUM-DSE/dpdk-cvms/wallet-vfio-snp";
+      flake = false;
+    };
   };
 
   outputs =
@@ -40,6 +47,7 @@
         fstackRoot = inputs.f-stack.outPath;
         fstackIperfBadRoot = inputs.fstack-iperf-bad-src.outPath;
         iperfFstackRoot = inputs.iperf-fstack-src.outPath;
+        dpdkCvmsRoot = inputs.dpdk-cvms-src.outPath;
       };
 
       # Same package set without DWARF/dontStrip in libfstack.a and the
@@ -50,6 +58,7 @@
         fstackRoot = inputs.f-stack.outPath;
         fstackIperfBadRoot = inputs.fstack-iperf-bad-src.outPath;
         iperfFstackRoot = inputs.iperf-fstack-src.outPath;
+        dpdkCvmsRoot = inputs.dpdk-cvms-src.outPath;
       };
     in
     {
