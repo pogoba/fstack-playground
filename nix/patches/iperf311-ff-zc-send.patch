@@ -1,7 +1,7 @@
-diff --color -ruN si_a/src/ff_native.h si_b/src/ff_native.h
---- a/src/ff_native.h	2026-06-13 17:19:08.192569061 +0000
-+++ b/src/ff_native.h	2026-06-13 17:19:08.243570509 +0000
-@@ -42,6 +42,11 @@
+diff --color -ruN zrecv/src/ff_native.h zsend/src/ff_native.h
+--- a/src/ff_native.h	2026-06-13 18:57:00.168205199 +0000
++++ b/src/ff_native.h	2026-06-13 18:57:11.739529766 +0000
+@@ -48,6 +48,11 @@
   * ff_recv_mbuf (zero-copy) instead of copying reads. */
  extern int ffn_zc_recv;
  
@@ -13,9 +13,333 @@ diff --color -ruN si_a/src/ff_native.h si_b/src/ff_native.h
  #ifndef FF_FD_BASE
  #define FF_FD_BASE 128 /* must equal fd_reserve in the f-stack config */
  #endif
-diff --color -ruN si_a/src/iperf_tcp.c si_b/src/iperf_tcp.c
---- a/src/iperf_tcp.c	2026-06-13 17:19:08.193569089 +0000
-+++ b/src/iperf_tcp.c	2026-06-13 17:19:08.243570509 +0000
+diff --color -ruN zrecv/src/ff_native.h.orig zsend/src/ff_native.h.orig
+--- a/src/ff_native.h.orig	1970-01-01 00:00:00.000000000 +0000
++++ b/src/ff_native.h.orig	2026-06-13 18:57:11.732529570 +0000
+@@ -0,0 +1,320 @@
++/*
++ * ff_native.h - native F-Stack backend for iperf3.
++ *
++ * Maps the BSD socket calls of this translation unit onto F-Stack's ff_*
++ * API for F-Stack file descriptors (fd >= FF_FD_BASE, i.e. fd_reserve in
++ * the f-stack config), and keeps libc behavior for everything else
++ * (stdio, files, getaddrinfo, ...).
++ *
++ * Blocking semantics: F-Stack sockets cannot block (the stack runs in the
++ * same thread). Every place iperf waits goes through select(), which is
++ * mapped here to a loop of zero-timeout ff_select() + ff_pump() — ff_pump
++ * runs one iteration of the stack's event loop (RX, TX drain, timers), so
++ * the stack makes progress exactly while the application waits.
++ *
++ * Include this header LAST, after all system and iperf headers, in every
++ * .c file that performs socket I/O. The wrapper functions are defined
++ * before the macros so they can call the real libc symbols.
++ */
++
++#ifndef IPERF_FF_NATIVE_H
++#define IPERF_FF_NATIVE_H
++#ifdef FF_NATIVE
++
++#include <sys/types.h>
++#include <sys/socket.h>
++#include <sys/select.h>
++#include <sys/ioctl.h>
++#include <unistd.h>
++#include <fcntl.h>
++#include <errno.h>
++#include <stdarg.h>
++#include <string.h>
++#include <time.h>
++
++#include <ff_api.h>
++
++/* ff_mbuf_free is exported (ff_api.symlist) but not declared in ff_api.h. */
++void ff_mbuf_free(void *mb);
++
++/* Config-driven feature getters (f-stack lib): read [dpdk] zc_recv/zc_send
++ * from the loaded config after ff_init(), so the rig is controlled entirely
++ * from the config file rather than env vars. */
++int ff_zc_recv_enabled(void);
++int ff_zc_send_enabled(void);
++
++/* Defined in iperf_tcp.c (part of libiperf, where it is used); set from
++ * FF_ZC_RECV in ff_native_init(). Nonzero => TCP server drains streams via
++ * ff_recv_mbuf (zero-copy) instead of copying reads. */
++extern int ffn_zc_recv;
++
++#ifndef FF_FD_BASE
++#define FF_FD_BASE 128 /* must equal fd_reserve in the f-stack config */
++#endif
++
++static inline int
++ffn_is(int fd)
++{
++    return fd >= FF_FD_BASE;
++}
++
++static inline int
++ffn_socket(int domain, int type, int protocol)
++{
++    if ((domain == AF_INET || domain == AF_INET6) &&
++        (type == SOCK_STREAM || type == SOCK_DGRAM)) {
++        int fd = ff_socket(domain, type, protocol);
++        if (fd >= 0) {
++            /* F-Stack sockets must never block: the stack runs in this
++             * thread and only makes progress while we pump it. */
++            int on = 1;
++            ff_ioctl(fd, FIONBIO, &on);
++        }
++        return fd;
++    }
++    return socket(domain, type, protocol);
++}
++
++static inline int
++ffn_bind(int fd, const struct sockaddr *addr, socklen_t len)
++{
++    if (ffn_is(fd))
++        return ff_bind(fd, (const struct linux_sockaddr *)(const void *)addr, len);
++    return bind(fd, addr, len);
++}
++
++static inline int
++ffn_listen(int fd, int backlog)
++{
++    if (ffn_is(fd))
++        return ff_listen(fd, backlog);
++    return listen(fd, backlog);
++}
++
++static inline int
++ffn_accept(int fd, struct sockaddr *addr, socklen_t *len)
++{
++    if (ffn_is(fd)) {
++        int nfd = ff_accept(fd, (struct linux_sockaddr *)(void *)addr, len);
++        if (nfd >= 0) {
++            int on = 1;
++            ff_ioctl(nfd, FIONBIO, &on);
++        }
++        return nfd;
++    }
++    return accept(fd, addr, len);
++}
++
++static inline int
++ffn_connect(int fd, const struct sockaddr *addr, socklen_t len)
++{
++    if (ffn_is(fd))
++        return ff_connect(fd, (const struct linux_sockaddr *)(const void *)addr, len);
++    return connect(fd, addr, len);
++}
++
++static inline int
++ffn_close(int fd)
++{
++    if (ffn_is(fd))
++        return ff_close(fd);
++    return close(fd);
++}
++
++static inline ssize_t
++ffn_read(int fd, void *buf, size_t n)
++{
++    if (ffn_is(fd))
++        return ff_read(fd, buf, n);
++    return read(fd, buf, n);
++}
++
++static inline ssize_t
++ffn_write(int fd, const void *buf, size_t n)
++{
++    if (ffn_is(fd))
++        return ff_write(fd, buf, n);
++    return write(fd, buf, n);
++}
++
++static inline ssize_t
++ffn_recv(int fd, void *buf, size_t n, int flags)
++{
++    if (ffn_is(fd))
++        return ff_recv(fd, buf, n, flags);
++    return recv(fd, buf, n, flags);
++}
++
++static inline ssize_t
++ffn_send(int fd, const void *buf, size_t n, int flags)
++{
++    if (ffn_is(fd))
++        return ff_send(fd, buf, n, flags);
++    return send(fd, buf, n, flags);
++}
++
++static inline ssize_t
++ffn_sendto(int fd, const void *buf, size_t n, int flags,
++    const struct sockaddr *addr, socklen_t len)
++{
++    if (ffn_is(fd))
++        return ff_sendto(fd, buf, n, flags,
++            (const struct linux_sockaddr *)(const void *)addr, len);
++    return sendto(fd, buf, n, flags, addr, len);
++}
++
++static inline ssize_t
++ffn_recvfrom(int fd, void *buf, size_t n, int flags,
++    struct sockaddr *addr, socklen_t *len)
++{
++    if (ffn_is(fd))
++        return ff_recvfrom(fd, buf, n, flags,
++            (struct linux_sockaddr *)(void *)addr, len);
++    return recvfrom(fd, buf, n, flags, addr, len);
++}
++
++static inline int
++ffn_setsockopt(int fd, int level, int optname, const void *optval,
++    socklen_t optlen)
++{
++    if (ffn_is(fd))
++        /* ff_setsockopt translates Linux constants to FreeBSD ones */
++        return ff_setsockopt(fd, level, optname, optval, optlen);
++    return setsockopt(fd, level, optname, optval, optlen);
++}
++
++static inline int
++ffn_getsockopt(int fd, int level, int optname, void *optval,
++    socklen_t *optlen)
++{
++    if (ffn_is(fd))
++        return ff_getsockopt(fd, level, optname, optval, optlen);
++    return getsockopt(fd, level, optname, optval, optlen);
++}
++
++static inline int
++ffn_getsockname(int fd, struct sockaddr *addr, socklen_t *len)
++{
++    if (ffn_is(fd))
++        return ff_getsockname(fd, (struct linux_sockaddr *)(void *)addr, len);
++    return getsockname(fd, addr, len);
++}
++
++static inline int
++ffn_getpeername(int fd, struct sockaddr *addr, socklen_t *len)
++{
++    if (ffn_is(fd))
++        return ff_getpeername(fd, (struct linux_sockaddr *)(void *)addr, len);
++    return getpeername(fd, addr, len);
++}
++
++static inline int
++ffn_fcntl(int fd, int cmd, ...)
++{
++    va_list ap;
++    long arg;
++
++    va_start(ap, cmd);
++    arg = va_arg(ap, long);
++    va_end(ap);
++
++    if (ffn_is(fd)) {
++        /* F-Stack sockets are inherently nonblocking; humor the caller. */
++        if (cmd == F_GETFL)
++            return O_RDWR | O_NONBLOCK;
++        if (cmd == F_SETFL)
++            return 0;
++        return ff_fcntl(fd, cmd, arg);
++    }
++    return fcntl(fd, cmd, arg);
++}
++
++static inline int
++ffn_shutdown(int fd, int how)
++{
++    if (ffn_is(fd))
++        return ff_shutdown(fd, how);
++    return shutdown(fd, how);
++}
++
++/*
++ * select() over F-Stack fds: poll with zero timeout and pump the stack
++ * between polls; honor the caller's timeout with CLOCK_MONOTONIC. Mixed
++ * kernel/F-Stack fd sets are not supported (iperf only selects sockets).
++ */
++static inline int
++ffn_select(int nfds, fd_set *rs, fd_set *ws, fd_set *es, struct timeval *tv)
++{
++    struct timespec start, now;
++    fd_set rr, ww, ee;
++    struct timeval zero;
++    long timeout_us = -1;
++    int n;
++
++    if (nfds <= FF_FD_BASE)
++        return select(nfds, rs, ws, es, tv);
++
++    if (tv != NULL)
++        timeout_us = tv->tv_sec * 1000000L + tv->tv_usec;
++    clock_gettime(CLOCK_MONOTONIC, &start);
++
++    /* Always pump at least once so pending TX drains and RX progresses
++     * even when the poll below succeeds immediately. */
++    ff_pump();
++
++    for (;;) {
++        zero.tv_sec = 0;
++        zero.tv_usec = 0;
++        if (rs) rr = *rs;
++        if (ws) ww = *ws;
++        if (es) ee = *es;
++        n = ff_select(nfds, rs ? &rr : NULL, ws ? &ww : NULL,
++                es ? &ee : NULL, &zero);
++        if (n != 0) {
++            if (n > 0) {
++                if (rs) *rs = rr;
++                if (ws) *ws = ww;
++                if (es) *es = ee;
++            }
++            return n;
++        }
++
++        ff_pump();
++
++        if (timeout_us >= 0) {
++            long elapsed;
++            clock_gettime(CLOCK_MONOTONIC, &now);
++            elapsed = (now.tv_sec - start.tv_sec) * 1000000L +
++                (now.tv_nsec - start.tv_nsec) / 1000;
++            if (elapsed >= timeout_us) {
++                if (rs) FD_ZERO(rs);
++                if (ws) FD_ZERO(ws);
++                if (es) FD_ZERO(es);
++                return 0;
++            }
++        }
++    }
++}
++
++#define socket(a, b, c)            ffn_socket(a, b, c)
++#define bind(a, b, c)              ffn_bind(a, b, c)
++#define listen(a, b)               ffn_listen(a, b)
++#define accept(a, b, c)            ffn_accept(a, b, c)
++#define connect(a, b, c)           ffn_connect(a, b, c)
++#define close(a)                   ffn_close(a)
++#define read(a, b, c)              ffn_read(a, b, c)
++#define write(a, b, c)             ffn_write(a, b, c)
++#define recv(a, b, c, d)           ffn_recv(a, b, c, d)
++#define send(a, b, c, d)           ffn_send(a, b, c, d)
++#define sendto(a, b, c, d, e, f)   ffn_sendto(a, b, c, d, e, f)
++#define recvfrom(a, b, c, d, e, f) ffn_recvfrom(a, b, c, d, e, f)
++#define setsockopt(a, b, c, d, e)  ffn_setsockopt(a, b, c, d, e)
++#define getsockopt(a, b, c, d, e)  ffn_getsockopt(a, b, c, d, e)
++#define getsockname(a, b, c)       ffn_getsockname(a, b, c)
++#define getpeername(a, b, c)       ffn_getpeername(a, b, c)
++#define fcntl                      ffn_fcntl
++#define shutdown(a, b)             ffn_shutdown(a, b)
++#define select(a, b, c, d, e)      ffn_select(a, b, c, d, e)
++
++#endif /* FF_NATIVE */
++#endif /* IPERF_FF_NATIVE_H */
+diff --color -ruN zrecv/src/iperf_tcp.c zsend/src/iperf_tcp.c
+--- a/src/iperf_tcp.c	2026-06-13 18:57:00.150204694 +0000
++++ b/src/iperf_tcp.c	2026-06-13 18:57:11.739529766 +0000
 @@ -54,6 +54,7 @@
  /* Definition lives here (libiperf) so both libiperf and main can reference
   * it; main.c's ff_native_init() sets it from FF_ZC_RECV. */
@@ -45,17 +369,272 @@ diff --color -ruN si_a/src/iperf_tcp.c si_b/src/iperf_tcp.c
      if (sp->test->zerocopy)
  	r = Nsendfile(sp->buffer_fd, sp->socket, sp->buffer, sp->pending_size);
      else
-diff --color -ruN si_a/src/main.c si_b/src/main.c
---- a/src/main.c	2026-06-13 17:19:08.193569089 +0000
-+++ b/src/main.c	2026-06-13 17:19:08.243570509 +0000
+diff --color -ruN zrecv/src/main.c zsend/src/main.c
+--- a/src/main.c	2026-06-13 18:57:00.168205199 +0000
++++ b/src/main.c	2026-06-13 18:57:11.757530271 +0000
 @@ -86,6 +86,10 @@
-     ffn_zc_recv = getenv("FF_ZC_RECV") != NULL;
+     ffn_zc_recv = ff_zc_recv_enabled();
      if (ffn_zc_recv)
          fprintf(stderr, "iperf3: FF_NATIVE zero-copy receive enabled\n");
 +
-+    ffn_zc_send = getenv("FF_ZC_SEND") != NULL;
++    ffn_zc_send = ff_zc_send_enabled();
 +    if (ffn_zc_send)
 +        fprintf(stderr, "iperf3: FF_NATIVE zero-copy send enabled\n");
  }
  
  /* The embedded stack only transmits while pumped: after iperf closes its
+diff --color -ruN zrecv/src/main.c.orig zsend/src/main.c.orig
+--- a/src/main.c.orig	1970-01-01 00:00:00.000000000 +0000
++++ b/src/main.c.orig	2026-06-13 18:57:11.732529570 +0000
+@@ -0,0 +1,251 @@
++/*
++ * iperf, Copyright (c) 2014-2022, The Regents of the University of
++ * California, through Lawrence Berkeley National Laboratory (subject
++ * to receipt of any required approvals from the U.S. Dept. of
++ * Energy).  All rights reserved.
++ *
++ * If you have questions about your rights to use or distribute this
++ * software, please contact Berkeley Lab's Technology Transfer
++ * Department at TTD@lbl.gov.
++ *
++ * NOTICE.  This software is owned by the U.S. Department of Energy.
++ * As such, the U.S. Government has been granted for itself and others
++ * acting on its behalf a paid-up, nonexclusive, irrevocable,
++ * worldwide license in the Software to reproduce, prepare derivative
++ * works, and perform publicly and display publicly.  Beginning five
++ * (5) years after the date permission to assert copyright is obtained
++ * from the U.S. Department of Energy, and subject to any subsequent
++ * five (5) year renewals, the U.S. Government is granted for itself
++ * and others acting on its behalf a paid-up, nonexclusive,
++ * irrevocable, worldwide license in the Software to reproduce,
++ * prepare derivative works, distribute copies to the public, perform
++ * publicly and display publicly, and to permit others to do so.
++ *
++ * This code is distributed under a BSD style license, see the LICENSE
++ * file for complete information.
++ */
++#include "iperf_config.h"
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <getopt.h>
++#include <errno.h>
++#include <signal.h>
++#include <unistd.h>
++#ifdef HAVE_STDINT_H
++#include <stdint.h>
++#endif
++#include <sys/socket.h>
++#include <sys/types.h>
++#include <netinet/in.h>
++#include <arpa/inet.h>
++#include <netdb.h>
++
++#include "iperf.h"
++#include "iperf_api.h"
++#include "iperf_util.h"
++#include "iperf_locale.h"
++#include "net.h"
++#include "units.h"
++
++#ifdef FF_NATIVE
++#include "ff_native.h"
++#endif
++
++
++
++static int run(struct iperf_test *test);
++
++
++/**************************************************************************/
++#ifdef FF_NATIVE
++/* Initialize the embedded F-Stack instance before anything touches the
++ * network. Configuration via environment: FF_CONF (default ./config.ini),
++ * FF_PROC_TYPE (primary), FF_PROC_ID (0). */
++static void
++ff_native_init(void)
++{
++    static char ptype[64], pid[64];
++    const char *conf = getenv("FF_CONF");
++    if (conf == NULL)
++        conf = "./config.ini";
++    snprintf(ptype, sizeof(ptype), "--proc-type=%s",
++        getenv("FF_PROC_TYPE") ? getenv("FF_PROC_TYPE") : "primary");
++    snprintf(pid, sizeof(pid), "--proc-id=%s",
++        getenv("FF_PROC_ID") ? getenv("FF_PROC_ID") : "0");
++    char *ff_argv[] = { "iperf3", "--conf", (char *) conf, ptype, pid };
++    if (ff_init(5, ff_argv) < 0) {
++        fprintf(stderr, "iperf3: ff_init failed\n");
++        exit(1);
++    }
++    /* ff_init/rte_eal_init parse their own argv with getopt and leave the
++     * global parser state behind; reset it for iperf's option parsing. */
++    optind = 0;
++
++    ffn_zc_recv = ff_zc_recv_enabled();
++    if (ffn_zc_recv)
++        fprintf(stderr, "iperf3: FF_NATIVE zero-copy receive enabled\n");
++}
++
++/* The embedded stack only transmits while pumped: after iperf closes its
++ * sockets, drain for a moment so queued FINs actually leave the NIC and
++ * the peer sees a clean shutdown instead of vanished connections. */
++static void
++ff_native_drain(void)
++{
++    struct timespec t0, t;
++    clock_gettime(CLOCK_MONOTONIC, &t0);
++    do {
++        ff_pump();
++        clock_gettime(CLOCK_MONOTONIC, &t);
++    } while ((t.tv_sec - t0.tv_sec) * 1000000000L +
++             (t.tv_nsec - t0.tv_nsec) < 100000000L); /* 100 ms */
++}
++#endif
++
++
++int
++main(int argc, char **argv)
++{
++#ifdef FF_NATIVE
++    ff_native_init();
++    atexit(ff_native_drain);
++#endif
++    struct iperf_test *test;
++
++    // XXX: Setting the process affinity requires root on most systems.
++    //      Is this a feature we really need?
++#ifdef TEST_PROC_AFFINITY
++    /* didn't seem to work.... */
++    /*
++     * increasing the priority of the process to minimise packet generation
++     * delay
++     */
++    int rc = setpriority(PRIO_PROCESS, 0, -15);
++
++    if (rc < 0) {
++        perror("setpriority:");
++        fprintf(stderr, "setting priority to valid level\n");
++        rc = setpriority(PRIO_PROCESS, 0, 0);
++    }
++
++    /* setting the affinity of the process  */
++    cpu_set_t cpu_set;
++    int affinity = -1;
++    int ncores = 1;
++
++    sched_getaffinity(0, sizeof(cpu_set_t), &cpu_set);
++    if (errno)
++        perror("couldn't get affinity:");
++
++    if ((ncores = sysconf(_SC_NPROCESSORS_CONF)) <= 0)
++        err("sysconf: couldn't get _SC_NPROCESSORS_CONF");
++
++    CPU_ZERO(&cpu_set);
++    CPU_SET(affinity, &cpu_set);
++    if (sched_setaffinity(0, sizeof(cpu_set_t), &cpu_set) != 0)
++        err("couldn't change CPU affinity");
++#endif
++
++    test = iperf_new_test();
++    if (!test)
++        iperf_errexit(NULL, "create new test error - %s", iperf_strerror(i_errno));
++    iperf_defaults(test);	/* sets defaults */
++
++    if (iperf_parse_arguments(test, argc, argv) < 0) {
++        iperf_err(test, "parameter error - %s", iperf_strerror(i_errno));
++        fprintf(stderr, "\n");
++        usage_long(stdout);
++        exit(1);
++    }
++
++    if (run(test) < 0)
++        iperf_errexit(test, "error - %s", iperf_strerror(i_errno));
++
++    iperf_free_test(test);
++
++    return 0;
++}
++
++
++static jmp_buf sigend_jmp_buf;
++
++static void __attribute__ ((noreturn))
++sigend_handler(int sig)
++{
++    longjmp(sigend_jmp_buf, 1);
++}
++
++/**************************************************************************/
++static int
++run(struct iperf_test *test)
++{
++    /* Termination signals. */
++    iperf_catch_sigend(sigend_handler);
++    if (setjmp(sigend_jmp_buf))
++	iperf_got_sigend(test);
++
++    /* Ignore SIGPIPE to simplify error handling */
++    signal(SIGPIPE, SIG_IGN);
++
++    switch (test->role) {
++        case 's':
++	    if (test->daemon) {
++		int rc;
++		rc = daemon(0, 0);
++		if (rc < 0) {
++		    i_errno = IEDAEMON;
++		    iperf_errexit(test, "error - %s", iperf_strerror(i_errno));
++		}
++	    }
++	    if (iperf_create_pidfile(test) < 0) {
++		i_errno = IEPIDFILE;
++		iperf_errexit(test, "error - %s", iperf_strerror(i_errno));
++	    }
++            for (;;) {
++		int rc;
++		rc = iperf_run_server(test);
++                test->server_last_run_rc =rc;
++		if (rc < 0) {
++		    iperf_err(test, "error - %s", iperf_strerror(i_errno));
++                    if (test->json_output) {
++                        if (iperf_json_finish(test) < 0)
++                            return -1;
++                    }
++                    iflush(test);
++
++		    if (rc < -1) {
++		        iperf_errexit(test, "exiting");
++		    }
++                }
++                iperf_reset_test(test);
++                if (iperf_get_test_one_off(test) && rc != 2) {
++		    /* Authentication failure doesn't count for 1-off test */
++		    if (rc < 0 && i_errno == IEAUTHTEST) {
++			continue;
++		    }
++		    break;
++		}
++            }
++	    iperf_delete_pidfile(test);
++            break;
++	case 'c':
++	    if (iperf_create_pidfile(test) < 0) {
++		i_errno = IEPIDFILE;
++		iperf_errexit(test, "error - %s", iperf_strerror(i_errno));
++	    }
++	    if (iperf_run_client(test) < 0)
++		iperf_errexit(test, "error - %s", iperf_strerror(i_errno));
++	    iperf_delete_pidfile(test);
++            break;
++        default:
++            usage();
++            break;
++    }
++
++    iperf_catch_sigend(SIG_DFL);
++    signal(SIGPIPE, SIG_DFL);
++
++    return 0;
++}

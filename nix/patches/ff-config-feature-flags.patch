@@ -1,0 +1,68 @@
+diff --color -ruN fa/lib/ff_api.symlist fb/lib/ff_api.symlist
+--- a/lib/ff_api.symlist	2026-06-13 18:50:40.177440672 +0000
++++ b/lib/ff_api.symlist	2026-06-13 18:59:29.937411453 +0000
+@@ -5,6 +5,8 @@
+ ff_getsockopt
+ ff_ioctl
+ ff_close
++ff_zc_recv_enabled
++ff_zc_send_enabled
+ ff_compat
+ ff_read
+ ff_readv
+diff --color -ruN fa/lib/ff_config.c fb/lib/ff_config.c
+--- a/lib/ff_config.c	2026-06-13 18:50:40.172440530 +0000
++++ b/lib/ff_config.c	2026-06-13 18:50:40.199441296 +0000
+@@ -998,6 +998,12 @@
+         pconfig->dpdk.tso = atoi(value);
+     } else if (MATCH("dpdk", "tx_csum_offoad_skip")) {
+         pconfig->dpdk.tx_csum_offoad_skip = atoi(value);
++    } else if (MATCH("dpdk", "rx_csum_trust")) {
++        pconfig->dpdk.rx_csum_trust = atoi(value);
++    } else if (MATCH("dpdk", "zc_recv")) {
++        pconfig->dpdk.zc_recv = atoi(value);
++    } else if (MATCH("dpdk", "zc_send")) {
++        pconfig->dpdk.zc_send = atoi(value);
+     } else if (MATCH("dpdk", "vlan_strip")) {
+         pconfig->dpdk.vlan_strip = atoi(value);
+     } else if (MATCH("dpdk", "vlan_filter")) {
+@@ -1681,3 +1687,20 @@
+     ff_cfg_free_freebsd_chain(&ff_global_cfg.freebsd.boot);
+     ff_cfg_free_freebsd_chain(&ff_global_cfg.freebsd.sysctl);
+ }
++
++/*
++ * Native-app feature getters (config-driven, read after ff_init()): let the
++ * application opt into zero-copy recv/send via the f-stack config file
++ * instead of its own env/flags.  See [dpdk] zc_recv / zc_send.
++ */
++int
++ff_zc_recv_enabled(void)
++{
++    return ff_global_cfg.dpdk.zc_recv;
++}
++
++int
++ff_zc_send_enabled(void)
++{
++    return ff_global_cfg.dpdk.zc_send;
++}
+diff --color -ruN fa/lib/ff_config.h fb/lib/ff_config.h
+--- a/lib/ff_config.h	2026-06-13 18:50:40.166440360 +0000
++++ b/lib/ff_config.h	2026-06-13 18:50:40.198441268 +0000
+@@ -284,6 +284,15 @@
+         uint16_t vlan_filter_id[DPDK_MAX_VLAN_FILTER];
+         int symmetric_rss;
+ 
++        /* Feature toggles for the benchmark rig (all default 0):
++         *   rx_csum_trust : on an L4-csum-only vdev (vhost) enable rx_csum
++         *                   trust so neither side computes a full checksum.
++         *   zc_recv/zc_send : let a native app opt into zero-copy recv/send
++         *                   (read via ff_zc_recv_enabled/ff_zc_send_enabled). */
++        int rx_csum_trust;
++        int zc_recv;
++        int zc_send;
++
+         /* sleep x microseconds when no pkts incomming */
+         unsigned idle_sleep;
+ 

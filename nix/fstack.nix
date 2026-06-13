@@ -68,12 +68,19 @@ stdenv.mkDerivation {
     # segment"): make the receiver's delayed-ACK threshold count-based and
     # tunable, so the sender's per-ACK ffn_select wakeups can be throttled.
     ./patches/ff-tcp-delack-segs.patch
-    # Enable RX-csum trust when only L4 (not IPv4) csum offload is
-    # advertised. Upstream required all three (IPv4+UDP+TCP); the vhost-user
-    # PMD offers TCP+UDP but not IPv4, so the receiver pointlessly completed
-    # the partial checksum in SW (eth_vhost) and then re-verified it
-    # (FreeBSD in_cksum). With trust on, no full checksum is computed on a
-    # shared-memory link. Comment this line out to restore the double-csum.
+    # Config-driven feature toggles: [dpdk] rx_csum_trust / zc_recv / zc_send
+    # (all default 0). Adds the struct fields + parser and the
+    # ff_zc_recv_enabled/ff_zc_send_enabled getters the native app reads, so
+    # every rig knob lives in the f-stack config file. Must precede the
+    # csum-trust patch, which reads rx_csum_trust.
+    ./patches/ff-config-feature-flags.patch
+    # Enable RX-csum trust when only L4 (not IPv4) csum offload is advertised
+    # AND [dpdk] rx_csum_trust=1. Upstream required all three (IPv4+UDP+TCP);
+    # the vhost-user PMD offers TCP+UDP but not IPv4, so without trust the
+    # receiver pointlessly completed the partial checksum in SW (eth_vhost)
+    # and then re-verified it (FreeBSD in_cksum). With trust on, no full
+    # checksum is computed on a shared-memory link. Real NICs (all three
+    # advertised) are unaffected. Gated by config now; was a hard patch.
     ./patches/ff-vhost-rx-csum-trust.patch
     # ff_recv_mbuf(): zero-copy receive. soreceive() with a non-NULL mp0
     # hands the mbuf chain to the app instead of uiomove()ing into a user

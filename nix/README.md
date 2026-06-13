@@ -273,6 +273,37 @@ Notes:
   accidentally "works" — worth remembering when a native port misbehaves
   only in some environments.
 
+#### Offload / zero-copy stack — 12.6 → ~29.7 Gbit/s, all config-driven
+
+The 12.1 Gbit/s above is the unoptimized rig. Four offloads, each a single
+flag in the f-stack config (no env vars, no rebuild to toggle), take it to
+~29.7 Gbit/s on the same one-core-per-instance, single-stream, 1500-MTU
+setup:
+
+| `[dpdk]` flag    | effect | alone |
+|------------------|--------|-------|
+| `rx_csum_trust=1`| trust RX csums on the vhost vdev — neither side computes a full checksum (eth_vhost stops SW-completing, FreeBSD stops re-verifying) | 12.6 → ~20 |
+| `tso=1`          | virtio GSO: ~64KB super-segments through the ring (one stack trip per ~34KB, not per 1448B); needs `tso=1` on **both** configs | +~5% |
+| `zc_recv=1`      | native iperf drains streams via `ff_recv_mbuf` (no `uiomove`) | — |
+| `zc_send=1`      | native iperf sends via `ff_zc_mbuf_ext` + `ff_zc_send` (external-buffer mbuf, no copy) | — |
+
+Measured combinations (all on one host, steady state):
+
+```
+all off                       12.6 Gbit/s   (double-csum, copy, 1448B segs)
+rx_csum_trust only          ~20.0
++ zc_recv + zc_send         ~22.7
++ tso (everything on)       ~29.7
+```
+
+zc and GSO are **super-additive**: GSO removes per-packet overhead, zc
+removes per-byte socket copies, so together only the vhost ring copy
+remains. All four default to 0 when the key is absent, so other configs
+(e.g. the E810 `config.ini`) are unaffected; `rx_csum_trust` is
+vhost-only by design (a real NIC that validates all three csums trusts
+unconditionally — do **not** set it on a real wire). The committed
+`config-vhost-{a,b}.ini` ship with all four on.
+
 Tuning journey for the LD_PRELOAD number (each step measured): 12.9 (baseline after
 the timer fixes) -> 13.0 (tso=1 + tx_csum_offoad_skip=0 on the sender; the
 two MUST be flipped together on E810 -- csum offload alone or tso alone
