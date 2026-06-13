@@ -64,6 +64,10 @@ stdenv.mkDerivation {
     # physical NIC. Also passes --single-file-segments, which virtio_user
     # needs to share its memory with the backend.
     ./patches/ff-vdev-eth-vhost.patch
+    # net.inet.tcp.delack_segs (default 2 = stock "ACK every other
+    # segment"): make the receiver's delayed-ACK threshold count-based and
+    # tunable, so the sender's per-ACK ffn_select wakeups can be throttled.
+    ./patches/ff-tcp-delack-segs.patch
   ];
 
   postPatch = ''

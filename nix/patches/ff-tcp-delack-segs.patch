@@ -1,0 +1,82 @@
+diff --color -ruN ta/freebsd/netinet/tcp_input.c tb/freebsd/netinet/tcp_input.c
+--- a/freebsd/netinet/tcp_input.c	2026-06-13 13:57:43.337037363 +0000
++++ b/freebsd/netinet/tcp_input.c	2026-06-13 13:58:09.406778782 +0000
+@@ -154,6 +154,18 @@
+     &VNET_NAME(tcp_delack_enabled), 0,
+     "Delay ACK to try and piggyback it onto a data packet");
+ 
++/*
++ * F-Stack: number of full-sized segments that may accumulate unacked before
++ * an ACK must be sent.  2 reproduces the stock RFC-minimum "ACK every other
++ * segment"; larger values cut the reverse-path ACK rate (and, in the native
++ * ff_pump model, the sender's per-ACK ffn_select wakeups) at the cost of
++ * burstier sending and coarser RTT/window feedback.
++ */
++VNET_DEFINE(int, tcp_delack_segs) = 2;
++SYSCTL_INT(_net_inet_tcp, OID_AUTO, delack_segs, CTLFLAG_VNET | CTLFLAG_RW,
++    &VNET_NAME(tcp_delack_segs), 0,
++    "Segments to accumulate before sending a delayed ACK (>=2)");
++
+ VNET_DEFINE(int, drop_synfin) = 0;
+ SYSCTL_INT(_net_inet_tcp, OID_AUTO, drop_synfin, CTLFLAG_VNET | CTLFLAG_RW,
+     &VNET_NAME(drop_synfin), 0,
+@@ -514,6 +526,20 @@
+ 	    (tlen <= tp->t_maxseg) &&					\
+ 	    (V_tcp_delack_enabled || (tp->t_flags & TF_NEEDSYN)))
+ 
++/*
++ * F-Stack: like DELAY_ACK but count-based instead of "every other segment".
++ * Delay while fewer than net.inet.tcp.delack_segs full segments have piled up
++ * unacked.  acc is the unacked byte count INCLUDING the current segment.
++ * Note: no TT_DELACK-active gate, so successive in-order segments keep
++ * delaying (each re-arms the delack timer at check_delack) until the count is
++ * reached; the timer remains the fallback if the stream pauses early.
++ */
++#define DELAY_ACK_SEGS(tp, tlen, acc)					\
++	(((tp->t_flags & TF_RXWIN0SENT) == 0) &&			\
++	    ((tlen) <= (tp)->t_maxseg) &&				\
++	    (V_tcp_delack_enabled || ((tp)->t_flags & TF_NEEDSYN)) &&	\
++	    ((uint32_t)(acc) < (uint32_t)V_tcp_delack_segs * (tp)->t_maxseg))
++
+ void inline
+ cc_ecnpkt_handler_flags(struct tcpcb *tp, uint16_t flags, uint8_t iptos)
+ {
+@@ -1940,7 +1966,8 @@
+ 			}
+ 			/* NB: sorwakeup_locked() does an implicit unlock. */
+ 			sorwakeup_locked(so);
+-			if (DELAY_ACK(tp, tlen)) {
++			if (DELAY_ACK_SEGS(tp, tlen,
++			    tp->rcv_nxt - tp->last_ack_sent)) {
+ 				tp->t_flags |= TF_DELACK;
+ 			} else {
+ 				tp->t_flags |= TF_ACKNOW;
+@@ -3197,7 +3224,8 @@
+ 		    SEGQ_EMPTY(tp) &&
+ 		    (TCPS_HAVEESTABLISHED(tp->t_state) ||
+ 		     tfo_syn)) {
+-			if (DELAY_ACK(tp, tlen) || tfo_syn)
++			if (DELAY_ACK_SEGS(tp, tlen,
++			    tp->rcv_nxt + tlen - tp->last_ack_sent) || tfo_syn)
+ 				tp->t_flags |= TF_DELACK;
+ 			else
+ 				tp->t_flags |= TF_ACKNOW;
+diff --color -ruN ta/freebsd/netinet/tcp_var.h tb/freebsd/netinet/tcp_var.h
+--- a/freebsd/netinet/tcp_var.h	2026-06-13 13:57:43.341037476 +0000
++++ b/freebsd/netinet/tcp_var.h	2026-06-13 13:58:09.407778811 +0000
+@@ -1267,6 +1267,7 @@
+ VNET_DECLARE(int, tcp_autosndbuf_max);
+ VNET_DECLARE(int, tcp_bind_all_fibs);
+ VNET_DECLARE(int, tcp_delack_enabled);
++VNET_DECLARE(int, tcp_delack_segs);
+ VNET_DECLARE(int, tcp_do_autorcvbuf);
+ VNET_DECLARE(int, tcp_do_autosndbuf);
+ VNET_DECLARE(int, tcp_do_ecn);
+@@ -1321,6 +1322,7 @@
+ #define	V_tcp_autosndbuf_max		VNET(tcp_autosndbuf_max)
+ #define	V_tcp_bind_all_fibs		VNET(tcp_bind_all_fibs)
+ #define	V_tcp_delack_enabled		VNET(tcp_delack_enabled)
++#define	V_tcp_delack_segs		VNET(tcp_delack_segs)
+ #define	V_tcp_do_autorcvbuf		VNET(tcp_do_autorcvbuf)
+ #define	V_tcp_do_autosndbuf		VNET(tcp_do_autosndbuf)
+ #define	V_tcp_do_ecn			VNET(tcp_do_ecn)
