@@ -1,6 +1,7 @@
---- a/lib/ff_config.c	2026-06-12 11:38:12.853152917 +0000
-+++ b/lib/ff_config.c	2026-06-12 11:39:14.355896113 +0000
-@@ -1114,7 +1114,26 @@
+diff --color -ruN va/lib/ff_config.c vb/lib/ff_config.c
+--- a/lib/ff_config.c	2026-06-13 18:25:44.131114602 +0000
++++ b/lib/ff_config.c	2026-06-13 18:26:00.125564314 +0000
+@@ -1114,7 +1114,34 @@
      }
  
      if (cfg->dpdk.nb_vdev) {
@@ -20,6 +21,14 @@
 +                        cfg->dpdk.vdev_cfgs[i].nb_queues);
 +                    strcat(temp, temp2);
 +                }
++                /*
++                 * tso=1 makes the backend offer VIRTIO_NET_F_HOST_TSO4/6 so
++                 * the virtio_user frontend can push GSO super-segments
++                 * (~64KB) through the ring instead of MSS-sized packets;
++                 * tso=0 (default) disables them. Tied to [dpdk] tso.
++                 */
++                sprintf(temp2, ",tso=%d", cfg->dpdk.tso);
++                strcat(temp, temp2);
 +                dpdk_argv[n++] = strdup(temp);
 +                continue;
 +            }
@@ -27,7 +36,7 @@
              sprintf(temp, "--vdev=virtio_user%d,path=%s",
                  cfg->dpdk.vdev_cfgs[i].vdev_id,
                  cfg->dpdk.vdev_cfgs[i].path);
-@@ -1142,6 +1161,14 @@
+@@ -1142,6 +1169,14 @@
          }
          sprintf(temp, "--no-pci");
          dpdk_argv[n++] = strdup(temp);
