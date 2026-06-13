@@ -56,16 +56,20 @@
       packages.${system} = {
         inherit (packages)
           dpdk
+          dpdk-cvms
           fstack
+          fstack-cvms
           fstack-iperf-bad
           iperf-fstack
           iperf-fstack-native
+          iperf-fstack-native-cvms
           iperf3-fstack
           all
           ;
         default = packages.all;
         fstack-release = packagesRelease.fstack;
         iperf-fstack-native-release = packagesRelease.iperf-fstack-native;
+        iperf-fstack-native-cvms-release = packagesRelease.iperf-fstack-native-cvms;
         iperf3-fstack-release = packagesRelease.iperf3-fstack;
       };
 

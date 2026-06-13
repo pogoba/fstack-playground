@@ -16,12 +16,12 @@
   # live processes. Disable for benchmark builds with the exact upstream
   # codegen flags (see `debug` in nix/default.nix).
   withDebug ? true,
+  pname ? "fstack",
+  version ? "1.26",
 }:
 
 stdenv.mkDerivation {
-  pname = "fstack";
-  version = "1.26";
-  inherit src;
+  inherit pname version src;
 
   patches = [
     # free()d in ff_config.c but declared const; rejected by gcc 14 -Werror.

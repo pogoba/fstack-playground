@@ -19,16 +19,27 @@
   fstackRoot ? ../f-stack,
   fstackIperfBadRoot ? ../Fstack-iperf,
   iperfFstackRoot ? ../iperf_fstack,
+  # Local checkout of dpdk-cvms (upstream DPDK 25.03 + TUM-DSE CVM patches).
+  # Used by the *-cvms package variants so F-Stack can be exercised inside a
+  # confidential VM. Outside the flake (legacy nix-build) this resolves
+  # relative to the repo; the flake passes an absolute path via --impure.
+  dpdkCvmsRoot ? /scratch/okelmann/dpdk-cvms,
 }:
 
 let
   inherit (pkgs) lib stdenv;
 
-  # Source of the bundled (F-Stack-patched) DPDK. F-Stack requires its own
-  # DPDK tree, not upstream.
+  # F-Stack's bundled DPDK 24.11.6 (carries F-Stack-local patches that
+  # libfstack relies on). This is the default DPDK for all targets below;
+  # the *-cvms variants override it with `dpdkCvmsSrc`.
   dpdkSrc = builtins.path {
     path = fstackRoot + "/dpdk";
     name = "f-stack-dpdk-src";
+  };
+
+  dpdkCvmsSrc = builtins.path {
+    path = dpdkCvmsRoot;
+    name = "dpdk-cvms-src";
   };
 
   # F-Stack tree without the heavyweight parts that the lib/example/adapter
@@ -72,11 +83,25 @@ let
     };
 
   dpdk = pkgs.callPackage ./dpdk-fstack.nix { src = dpdkSrc; };
+  dpdk-cvms = pkgs.callPackage ./dpdk-fstack.nix {
+    src = dpdkCvmsSrc;
+    pname = "dpdk-cvms";
+    version = "25.03.0";
+    # Port F-Stack's rte_timer_meta_init / priv_timer-cache-align tweak
+    # onto upstream — libfstack calls rte_timer_meta_init() at init.
+    patches = [ ./patches/ff-rte-timer-meta-init.patch ];
+  };
 
   fstack = pkgs.callPackage ./fstack.nix {
     src = fstackSrc;
     dpdk-fstack = dpdk;
     withDebug = debug;
+  };
+  fstack-cvms = pkgs.callPackage ./fstack.nix {
+    src = fstackSrc;
+    dpdk-fstack = dpdk-cvms;
+    withDebug = debug;
+    pname = "fstack-cvms";
   };
 
   fstack-iperf-bad = mkIperfFork "fstack-iperf-bad" fstackIperfBadRoot [
@@ -97,12 +122,12 @@ let
   #   sudo FF_CONF=$PWD/config.ini ./result/bin/iperf3 -s -B <addr>
   # TCP only for now (the UDP connect handshake still does a raw blocking
   # read).
-  iperf-fstack-native = stdenv.mkDerivation {
-    pname = "iperf-fstack-native";
+  mkIperfFstackNative = { pname, fstack, dpdk }: stdenv.mkDerivation {
+    inherit pname;
     version = "3.11-ff-native";
     src = builtins.path {
       path = iperfFstackRoot;
-      name = "iperf-fstack-native-src";
+      name = "${pname}-src";
       filter = path: type: baseNameOf path != ".git";
     };
     patches = [
@@ -150,6 +175,20 @@ let
     meta.mainProgram = "iperf3";
   };
 
+  iperf-fstack-native = mkIperfFstackNative {
+    pname = "iperf-fstack-native";
+    inherit fstack dpdk;
+  };
+  # Same binary, but with libfstack + DPDK both built from dpdk-cvms
+  # (upstream 25.03 + TUM-DSE CVM patches). Use this build to exercise
+  # F-Stack inside a confidential VM where the DPDK VFIO/mempool hacks are
+  # needed.
+  iperf-fstack-native-cvms = mkIperfFstackNative {
+    pname = "iperf-fstack-native-cvms";
+    fstack = fstack-cvms;
+    dpdk = dpdk-cvms;
+  };
+
   # Run iperf3 on top of F-Stack via the syscall-hijack adapter.
   # Requires a running `fstack` instance (see f-stack/adapter/syscall/README.md):
   #   fstack --conf /etc/f-stack.conf --proc-type=primary &
@@ -166,10 +205,13 @@ in
 rec {
   inherit
     dpdk
+    dpdk-cvms
     fstack
+    fstack-cvms
     fstack-iperf-bad
     iperf-fstack
     iperf-fstack-native
+    iperf-fstack-native-cvms
     iperf3-fstack
     ;
 

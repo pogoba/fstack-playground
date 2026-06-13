@@ -16,12 +16,17 @@
   openssl,
   libnl,
   linux-firmware,
+  pname ? "dpdk-fstack",
+  version ? "24.11.6",
+  # F-Stack's bundled DPDK already carries the F-Stack-local patches
+  # libfstack relies on; passing this tree → no patches needed. Upstream
+  # DPDK sources (e.g. dpdk-cvms) must carry the ported F-Stack patches —
+  # see ./patches/ff-rte-timer-meta-init.patch.
+  patches ? [ ],
 }:
 
 stdenv.mkDerivation {
-  pname = "dpdk-fstack";
-  version = "24.11.6";
-  inherit src;
+  inherit pname version src patches;
 
   nativeBuildInputs = [
     meson
@@ -52,24 +57,30 @@ stdenv.mkDerivation {
     # The ice PMD loads its DDP package at runtime from a hardcoded
     # /lib/firmware path that does not exist on NixOS; point it into the nix
     # store instead (same patch as vmuxIO's nix/dpdk23.nix). ice.pkg is a
-    # symlink to the versioned package inside linux-firmware.
-    substituteInPlace drivers/net/ice/ice_ethdev.h \
-      --replace-fail \
-        '#define ICE_PKG_FILE_DEFAULT "/lib/firmware/intel/ice/ddp/ice.pkg"' \
-        '#define ICE_PKG_FILE_DEFAULT "${linux-firmware}/lib/firmware/intel/ice/ddp/ice.pkg"' \
-      --replace-fail \
-        '#define ICE_PKG_FILE_SEARCH_PATH_DEFAULT "/lib/firmware/intel/ice/ddp/"' \
-        '#define ICE_PKG_FILE_SEARCH_PATH_DEFAULT "${linux-firmware}/lib/firmware/intel/ice/ddp/"'
+    # symlink to the versioned package inside linux-firmware. Skipped when
+    # the source tree does not ship the ice PMD (e.g. dpdk-cvms).
+    if [ -f drivers/net/ice/ice_ethdev.h ]; then
+      substituteInPlace drivers/net/ice/ice_ethdev.h \
+        --replace-fail \
+          '#define ICE_PKG_FILE_DEFAULT "/lib/firmware/intel/ice/ddp/ice.pkg"' \
+          '#define ICE_PKG_FILE_DEFAULT "${linux-firmware}/lib/firmware/intel/ice/ddp/ice.pkg"' \
+        --replace-fail \
+          '#define ICE_PKG_FILE_SEARCH_PATH_DEFAULT "/lib/firmware/intel/ice/ddp/"' \
+          '#define ICE_PKG_FILE_SEARCH_PATH_DEFAULT "${linux-firmware}/lib/firmware/intel/ice/ddp/"'
+    fi
 
     # F-Stack re-adds igb_uio and probes /lib/modules/$(uname -r)/build during
     # meson setup even with -Denable_kmods=false; restore upstream's gating so
-    # the sandboxed build does not touch the host kernel tree.
-    printf '%s\n' \
-      "if not get_option('enable_kmods')" \
-      "    subdir_done()" \
-      "endif" \
-      | cat - kernel/linux/meson.build > kernel/linux/meson.build.tmp
-    mv kernel/linux/meson.build.tmp kernel/linux/meson.build
+    # the sandboxed build does not touch the host kernel tree. Skipped when
+    # there is no kernel/linux subdir (upstream / dpdk-cvms already gates it).
+    if [ -f kernel/linux/meson.build ]; then
+      printf '%s\n' \
+        "if not get_option('enable_kmods')" \
+        "    subdir_done()" \
+        "endif" \
+        | cat - kernel/linux/meson.build > kernel/linux/meson.build.tmp
+      mv kernel/linux/meson.build.tmp kernel/linux/meson.build
+    fi
   '';
 
   mesonFlags = [
