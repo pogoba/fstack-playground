@@ -1,0 +1,71 @@
+diff --color -ruN ziperf_a/src/ff_native.h ziperf_b/src/ff_native.h
+--- a/src/ff_native.h	2026-06-13 17:01:15.229113744 +0000
++++ b/src/ff_native.h	2026-06-13 17:08:22.331234769 +0000
+@@ -34,6 +34,14 @@
+ 
+ #include <ff_api.h>
+ 
++/* ff_mbuf_free is exported (ff_api.symlist) but not declared in ff_api.h. */
++void ff_mbuf_free(void *mb);
++
++/* Defined in iperf_tcp.c (part of libiperf, where it is used); set from
++ * FF_ZC_RECV in ff_native_init(). Nonzero => TCP server drains streams via
++ * ff_recv_mbuf (zero-copy) instead of copying reads. */
++extern int ffn_zc_recv;
++
+ #ifndef FF_FD_BASE
+ #define FF_FD_BASE 128 /* must equal fd_reserve in the f-stack config */
+ #endif
+diff --color -ruN ziperf_a/src/iperf_tcp.c ziperf_b/src/iperf_tcp.c
+--- a/src/iperf_tcp.c	2026-06-13 17:01:15.231113801 +0000
++++ b/src/iperf_tcp.c	2026-06-13 17:08:22.332234797 +0000
+@@ -49,6 +49,12 @@
+ 
+ #ifdef FF_NATIVE
+ #include "ff_native.h"
++
++#ifdef FF_NATIVE
++/* Definition lives here (libiperf) so both libiperf and main can reference
++ * it; main.c's ff_native_init() sets it from FF_ZC_RECV. */
++int ffn_zc_recv = 0;
++#endif
+ #endif
+ 
+ #endif /* HAVE_FLOWLABEL */
+@@ -62,6 +68,22 @@
+ {
+     int r;
+ 
++#ifdef FF_NATIVE
++    if (ffn_zc_recv && sp->socket >= FF_FD_BASE) {
++        /* Zero-copy receive: take the mbuf chain and free it without
++         * copying the payload into sp->buffer (iperf discards RX data). */
++        void *mb = NULL;
++        r = ff_recv_mbuf(sp->socket, &mb, sp->settings->blksize, 0);
++        if (mb != NULL)
++            ff_mbuf_free(mb);
++        if (r < 0) {
++            if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
++                r = 0;  /* nothing ready: matches Nread's soft return */
++            else
++                return NET_HARDERROR;
++        }
++    } else
++#endif
+     r = Nread(sp->socket, sp->buffer, sp->settings->blksize, Ptcp);
+ 
+     if (r < 0)
+diff --color -ruN ziperf_a/src/main.c ziperf_b/src/main.c
+--- a/src/main.c	2026-06-13 17:01:15.232113829 +0000
++++ b/src/main.c	2026-06-13 17:08:22.332234797 +0000
+@@ -82,6 +82,10 @@
+     /* ff_init/rte_eal_init parse their own argv with getopt and leave the
+      * global parser state behind; reset it for iperf's option parsing. */
+     optind = 0;
++
++    ffn_zc_recv = getenv("FF_ZC_RECV") != NULL;
++    if (ffn_zc_recv)
++        fprintf(stderr, "iperf3: FF_NATIVE zero-copy receive enabled\n");
+ }
+ 
+ /* The embedded stack only transmits while pumped: after iperf closes its

@@ -75,6 +75,12 @@ stdenv.mkDerivation {
     # (FreeBSD in_cksum). With trust on, no full checksum is computed on a
     # shared-memory link. Comment this line out to restore the double-csum.
     ./patches/ff-vhost-rx-csum-trust.patch
+    # ff_recv_mbuf(): zero-copy receive. soreceive() with a non-NULL mp0
+    # hands the mbuf chain to the app instead of uiomove()ing into a user
+    # buffer; the app frees it with ff_mbuf_free(). Implements the datapath
+    # the ff_zc_mbuf_read stub never did. Used by native iperf under
+    # FF_ZC_RECV.
+    ./patches/ff-add-recv-mbuf.patch
   ];
 
   postPatch = ''

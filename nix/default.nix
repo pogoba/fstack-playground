@@ -108,6 +108,10 @@ let
     patches = [
       ./patches/iperf311-timeout-connect-select.patch
       ./patches/iperf311-ff-native.patch
+      # Zero-copy receive path (env FF_ZC_RECV=1): the TCP server drains
+      # each stream via ff_recv_mbuf + ff_mbuf_free instead of a copying
+      # read. A/B-toggleable in one binary.
+      ./patches/iperf311-ff-zc-recv.patch
     ];
     nativeBuildInputs = [ pkgs.pkg-config ];
     buildInputs = [

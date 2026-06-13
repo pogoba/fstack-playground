@@ -1,0 +1,94 @@
+diff --color -ruN za/lib/ff_api.h zb/lib/ff_api.h
+--- a/lib/ff_api.h	2026-06-13 17:00:26.284725114 +0000
++++ b/lib/ff_api.h	2026-06-13 17:00:48.382352046 +0000
+@@ -130,6 +130,15 @@
+     struct linux_sockaddr *from, socklen_t *fromlen);
+ ssize_t ff_recvmsg(int s, struct msghdr *msg, int flags);
+ 
++/*
++ * Zero-copy receive.  Returns the received data as an mbuf chain in *mb
++ * (ownership transferred to the caller; free with ff_mbuf_free) and the
++ * byte count as the return value.  -1/errno on error, EWOULDBLOCK when no
++ * data is ready.  TCP/stream sockets; the app reads the chain in place or
++ * just frees it (e.g. a sink that discards data).
++ */
++ssize_t ff_recv_mbuf(int s, void **mb, size_t len, int flags);
++
+ int ff_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
+     struct timeval *timeout);
+ 
+diff --color -ruN za/lib/ff_api.symlist zb/lib/ff_api.symlist
+--- a/lib/ff_api.symlist	2026-06-13 17:00:26.290725284 +0000
++++ b/lib/ff_api.symlist	2026-06-13 17:00:48.382352046 +0000
+@@ -16,6 +16,7 @@
+ ff_recv 
+ ff_recvfrom
+ ff_recvmsg 
++ff_recv_mbuf
+ ff_select
+ ff_fcntl
+ ff_socketpair
+diff --color -ruN za/lib/ff_syscall_wrapper.c zb/lib/ff_syscall_wrapper.c
+--- a/lib/ff_syscall_wrapper.c	2026-06-13 17:00:26.278724944 +0000
++++ b/lib/ff_syscall_wrapper.c	2026-06-13 17:00:48.381352017 +0000
+@@ -1381,6 +1381,60 @@
+     return (-1);
+ }
+ 
++/*
++ * Zero-copy receive: hand the application the received mbuf chain instead
++ * of uiomove()ing the payload into a user buffer.  soreceive() with a
++ * non-NULL mp0 transfers mbuf ownership to the caller, who must release the
++ * chain with ff_mbuf_free() when done.  Returns the number of bytes in the
++ * returned chain (0 on EOF), or -1 with errno set (EWOULDBLOCK when no data
++ * is ready on a non-blocking socket).
++ */
++ssize_t
++ff_recv_mbuf(int s, void **mb, size_t len, int flags)
++{
++    struct thread *td = curthread;
++    struct file *fp;
++    struct socket *so;
++    struct uio auio;
++    struct mbuf *m = NULL;
++    int rcvflags = flags;
++    int rc;
++
++    if (mb == NULL || len > INT_MAX) {
++        rc = EINVAL;
++        goto kern_fail;
++    }
++
++    if ((rc = getsock(td, s, NULL, &fp)) != 0)
++        goto kern_fail;
++    so = (struct socket *)fp->f_data;
++
++    bzero(&auio, sizeof(auio));
++    auio.uio_resid = len;
++    auio.uio_segflg = UIO_SYSSPACE;
++    auio.uio_rw = UIO_READ;
++    auio.uio_td = td;
++
++    rc = soreceive(so, NULL, &auio, &m, NULL, &rcvflags);
++    fdrop(fp, td);
++
++    if (rc != 0) {
++        if (auio.uio_resid != (ssize_t)len &&
++            (rc == ERESTART || rc == EINTR || rc == EWOULDBLOCK))
++            rc = 0;
++        else
++            goto kern_fail;
++    }
++
++    *mb = (void *)m;
++    return (ssize_t)(len - auio.uio_resid);
++kern_fail:
++    if (mb != NULL)
++        *mb = NULL;
++    ff_os_errno(rc);
++    return (-1);
++}
++
+ int
+ ff_fcntl(int fd, int cmd, ...)
+ {
