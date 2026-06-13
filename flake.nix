@@ -15,7 +15,7 @@
       url = "github:F-Stack/f-stack/c1a76b0ba36c53269913cd805d83a536cd8f64bc";
       flake = false;
     };
-    fstack-iperf-src = {
+    fstack-iperf-bad-src = {
       url = "github:heatheart3/Fstack-iperf/7679199ec99c5db194c554b7b11066d347891735";
       flake = false;
     };
@@ -38,7 +38,7 @@
       packages = import ./nix {
         inherit pkgs;
         fstackRoot = inputs.f-stack.outPath;
-        fstackIperfRoot = inputs.fstack-iperf-src.outPath;
+        fstackIperfBadRoot = inputs.fstack-iperf-bad-src.outPath;
         iperfFstackRoot = inputs.iperf-fstack-src.outPath;
       };
 
@@ -48,7 +48,7 @@
         inherit pkgs;
         debug = false;
         fstackRoot = inputs.f-stack.outPath;
-        fstackIperfRoot = inputs.fstack-iperf-src.outPath;
+        fstackIperfBadRoot = inputs.fstack-iperf-bad-src.outPath;
         iperfFstackRoot = inputs.iperf-fstack-src.outPath;
       };
     in
@@ -57,7 +57,7 @@
         inherit (packages)
           dpdk
           fstack
-          fstack-iperf
+          fstack-iperf-bad
           iperf-fstack
           iperf-fstack-native
           iperf3-fstack

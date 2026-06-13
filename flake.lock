@@ -17,7 +17,7 @@
         "type": "github"
       }
     },
-    "fstack-iperf-src": {
+    "fstack-iperf-bad-src": {
       "flake": false,
       "locked": {
         "lastModified": 1725039587,
@@ -70,7 +70,7 @@
     "root": {
       "inputs": {
         "f-stack": "f-stack",
-        "fstack-iperf-src": "fstack-iperf-src",
+        "fstack-iperf-bad-src": "fstack-iperf-bad-src",
         "iperf-fstack-src": "iperf-fstack-src",
         "nixpkgs": "nixpkgs"
       }

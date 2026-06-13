@@ -4,7 +4,7 @@
 # Legacy nix-build:   nix-build nix/ -A all
 # Individual targets: nix-build nix/ -A dpdk
 #                     nix-build nix/ -A fstack          (libfstack.a + examples + syscall adapter)
-#                     nix-build nix/ -A fstack-iperf    (heatheart3 fork — vanilla iperf3, see README)
+#                     nix-build nix/ -A fstack-iperf-bad    (heatheart3 fork — vanilla iperf3, see README)
 #                     nix-build nix/ -A iperf-fstack    (guhaoyu2005 fork — vanilla iperf3, see README)
 #                     nix-build nix/ -A iperf3-fstack   (iperf3 wrapped with libff_syscall.so LD_PRELOAD)
 {
@@ -17,7 +17,7 @@
   debug ? true,
   # Source roots; overridden by the flake with its path inputs.
   fstackRoot ? ../f-stack,
-  fstackIperfRoot ? ../Fstack-iperf,
+  fstackIperfBadRoot ? ../Fstack-iperf,
   iperfFstackRoot ? ../iperf_fstack,
 }:
 
@@ -79,7 +79,7 @@ let
     withDebug = debug;
   };
 
-  fstack-iperf = mkIperfFork "fstack-iperf" fstackIperfRoot [
+  fstack-iperf-bad = mkIperfFork "fstack-iperf-bad" fstackIperfBadRoot [
     # libff_syscall.so hooks select() but not poll(); unhooked poll on an
     # F-Stack fd fakes connect completion and iperf3 then writes to a
     # still-connecting socket (ENOTCONN).
@@ -167,7 +167,7 @@ rec {
   inherit
     dpdk
     fstack
-    fstack-iperf
+    fstack-iperf-bad
     iperf-fstack
     iperf-fstack-native
     iperf3-fstack
@@ -178,7 +178,7 @@ rec {
     paths = [
       dpdk
       fstack
-      fstack-iperf
+      fstack-iperf-bad
       iperf-fstack
       iperf3-fstack
     ];
