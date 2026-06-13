@@ -68,6 +68,13 @@ stdenv.mkDerivation {
     # segment"): make the receiver's delayed-ACK threshold count-based and
     # tunable, so the sender's per-ACK ffn_select wakeups can be throttled.
     ./patches/ff-tcp-delack-segs.patch
+    # Enable RX-csum trust when only L4 (not IPv4) csum offload is
+    # advertised. Upstream required all three (IPv4+UDP+TCP); the vhost-user
+    # PMD offers TCP+UDP but not IPv4, so the receiver pointlessly completed
+    # the partial checksum in SW (eth_vhost) and then re-verified it
+    # (FreeBSD in_cksum). With trust on, no full checksum is computed on a
+    # shared-memory link. Comment this line out to restore the double-csum.
+    ./patches/ff-vhost-rx-csum-trust.patch
   ];
 
   postPatch = ''

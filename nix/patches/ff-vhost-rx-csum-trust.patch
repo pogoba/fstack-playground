@@ -1,0 +1,57 @@
+diff --color -ruN ca/lib/ff_dpdk_if.c cb/lib/ff_dpdk_if.c
+--- a/lib/ff_dpdk_if.c	2026-06-13 15:57:36.932757639 +0000
++++ b/lib/ff_dpdk_if.c	2026-06-13 16:03:43.066164141 +0000
+@@ -735,13 +735,30 @@
+                 }
+                 #endif
+ 
+-                /* Set Rx checksum checking */
+-                if ((dev_info.rx_offload_capa & RTE_ETH_RX_OFFLOAD_IPV4_CKSUM) &&
+-                    (dev_info.rx_offload_capa & RTE_ETH_RX_OFFLOAD_UDP_CKSUM) &&
+-                    (dev_info.rx_offload_capa & RTE_ETH_RX_OFFLOAD_TCP_CKSUM)) {
+-                    ff_log(FF_LOG_INFO, FF_LOGTYPE_FSTACK_LIB, "RX checksum offload supported\n");
+-                    port_conf.rxmode.offloads |= RTE_ETH_RX_OFFLOAD_CHECKSUM;
+-                    pconf->hw_features.rx_csum = 1;
++                /* Set Rx checksum checking.
++                 *
++                 * Upstream demanded IPv4 + UDP + TCP csum offload all be
++                 * advertised before enabling rx_csum.  Request whatever
++                 * subset the device actually offers instead, and enable
++                 * rx_csum (trust) whenever L4 csum is available.  The
++                 * vhost-user PMD advertises TCP+UDP csum but NOT IPv4 csum,
++                 * so the strict gate left rx_csum off -- the eth_vhost driver
++                 * then completed the sender's partial checksum in software
++                 * (rte_raw_cksum_mbuf) AND FreeBSD re-verified it (in_cksum),
++                 * both pure waste on a shared-memory link.  With rx_csum on,
++                 * eth_vhost stops the SW completion and F-Stack trusts the
++                 * packet, so no full checksum is ever computed end to end. */
++                {
++                    uint64_t rxc = dev_info.rx_offload_capa &
++                        (RTE_ETH_RX_OFFLOAD_IPV4_CKSUM |
++                         RTE_ETH_RX_OFFLOAD_UDP_CKSUM |
++                         RTE_ETH_RX_OFFLOAD_TCP_CKSUM);
++                    if (rxc & (RTE_ETH_RX_OFFLOAD_UDP_CKSUM |
++                               RTE_ETH_RX_OFFLOAD_TCP_CKSUM)) {
++                        ff_log(FF_LOG_INFO, FF_LOGTYPE_FSTACK_LIB, "RX checksum offload supported\n");
++                        port_conf.rxmode.offloads |= rxc;
++                        pconf->hw_features.rx_csum = 1;
++                    }
+                 }
+ 
+                 if (dev_info.rx_offload_capa & RTE_ETH_RX_OFFLOAD_TIMESTAMP) {
+@@ -1495,7 +1512,14 @@
+ {
+     uint8_t rx_csum = ctx->hw_features.rx_csum;
+     if (rx_csum) {
+-        if (pkt->ol_flags & (RTE_MBUF_F_RX_IP_CKSUM_BAD | RTE_MBUF_F_RX_L4_CKSUM_BAD)) {
++        /*
++         * _NONE == _BAD | _GOOD, so a plain "& _BAD" test also matches a
++         * NONE result and would wrongly drop the packet.  The vhost-user
++         * PMD reports L4 csum NONE (it does not validate on a shared-memory
++         * link); only drop when the field is *exactly* BAD.
++         */
++        if ((pkt->ol_flags & RTE_MBUF_F_RX_IP_CKSUM_MASK) == RTE_MBUF_F_RX_IP_CKSUM_BAD ||
++            (pkt->ol_flags & RTE_MBUF_F_RX_L4_CKSUM_MASK) == RTE_MBUF_F_RX_L4_CKSUM_BAD) {
+             rte_pktmbuf_free(pkt);
+             return;
+         }
